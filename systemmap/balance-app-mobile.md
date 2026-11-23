@@ -44,7 +44,7 @@ covered_paths:
   - mobile/test/balance_service_test.dart
   - mobile/test/citation_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: c78d88e
+last_verified_commit: 67a08c8
 last_verified: 2026-11-23
 ---
 
@@ -274,7 +274,7 @@ last_verified: 2026-11-23
    站点图标/名称、日期、标题两行、摘要两行），点卡片开系统浏览器。`SearchSource` 新增
    持久化字段 `siteIcon`，加载失败回退站点首字母。
 2. **引用角标**：认官方 token `[citation:N]`（此前只认历史 `[ref_N]`，正文会残留字面量），
-   两种都转成可点角标；无对应来源的 token 丢弃；正文自带 token 时不再按 annotations 偏移
+   两种都转成 `[N]` 内联芯片（浅强调底 + 强调色数字，与来源面板序号一致）；无对应来源的 token 丢弃；正文自带 token 时不再按 annotations 偏移
    补角标（避免一处两个编号）。移动端没有 hover：点角标打开来源面板并高亮该条。
 3. **侧边栏**：会话按「今天 / 昨天 / 7 天内 / 30 天内 / 年月」分组（`core/utils/session_groups.dart`，
    按自然日差值、先按更新时间倒序）；行内去掉「服务商 · N 条消息」副标题，右侧加「更多」
