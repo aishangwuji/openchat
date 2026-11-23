@@ -46,15 +46,18 @@
   模型给出正常的对话式拒绝（英文说明无法提供），**没有**走到我们 `onRefusal` 的
   「内容未通过安全审核」文案——这次是模型级拒绝，不是 `safety_check` 命中
   （输入未触发 400、输出未 content_filter）。
-- **`url_not_allowed`（网页被安全审核拦截）**：同一安全开关下，让模型读
-  `https://en.wikipedia.org/wiki/Methamphetamine`，工具日志为
-  `kind=deep_search action=open_page ... failed=true error=url_not_allowed`；
-  模型随后说明「无法抓取该页面」并给出替代方案，界面没有卡在「正在阅读链接…」，
-  也没有产生 signature。
-  - 顺带修了一处文案：原来失败也走 `searchedLabel()`，显示「搜索已完成，正在整理答案…」，
+- **`url_not_allowed`（网页被安全审核拦截）**：同一安全开关下让模型读
+  `https://en.wikipedia.org/wiki/Methamphetamine` 与 `.../Cocaine`，两次都稳定复现
+  `kind=read_link action=read_link ... failed=true error=url_not_allowed`（请求日志
+  `tools=1 webSearch=false readUrl=true safety=true`）；模型随后说明「无法抓取该页面」
+  并给替代方案，界面没卡在「正在阅读链接…」，也没有产生 signature。
+  - 失败时的提示已改：原来沿用 `searchedLabel()` 显示「搜索已完成，正在整理答案…」，
     看起来像搜到了东西；现在 read_link 失败统一提示「链接读取失败，继续整理答案…」
     （`8a00d5e`），并把 `error.code` 记进工具日志，区分 `url_not_accessible` /
     `url_not_allowed` / `unavailable`。
+  - 该提示是过程态文案，回答开始后即被正文替换；两次 450ms 间隔的布局采样都没抓到
+    （`dumpLayout` 单次约 400ms），只有日志能证明分支被执行。若要截图级证据，需要放慢
+    首个 token 的到达或加长提示驻留时间，未做。
 - **留存体积优化**：深搜一次 `server_tool_calls` 实测 18070 字符，但都是无 signature 的
   `open_page`，不会进入后续上下文。改为只留存带 signature 的调用（`e2b72ed`）后：
   深搜不再留存任何内容，阅读链接仍为 2239 字符且下一轮 `replay: 1`。
