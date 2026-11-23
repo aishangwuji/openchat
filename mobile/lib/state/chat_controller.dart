@@ -781,28 +781,11 @@ class ChatController extends ChangeNotifier {
 
     final List<ChatMessage> rawHistory = historyTo(session, parentMessage.id);
     final String identityName = _currentIdentityName(session);
-    final List<ChatMessage> history = rawHistory.map((ChatMessage m) {
-      if (m.isUser && identityName.isNotEmpty && m.content.isNotEmpty) {
-        return ChatMessage(
-          id: m.id,
-          role: m.role,
-          content: '$identityName：${m.content}',
-          createdAt: m.createdAt,
-          status: m.status,
-          parentId: m.parentId,
-          reasoningContent: m.reasoningContent,
-        );
-      }
-      return ChatMessage(
-        id: m.id,
-        role: m.role,
-        content: m.content,
-        createdAt: m.createdAt,
-        status: m.status,
-        parentId: m.parentId,
-        reasoningContent: m.reasoningContent,
-      );
-    }).toList(growable: false);
+    // Business Rule: 回放副本必须把可回放字段（附件等）原样带过去，
+    // 否则第二轮起 buildApiMessages 看不到 file_id，文档问答会「上一轮还记得、下一轮就失忆」。
+    final List<ChatMessage> history = rawHistory
+        .map((ChatMessage m) => replayMessage(m, identityName))
+        .toList(growable: false);
 
     // 百智云联网搜索：发送前先检索，把摘要注入系统提示、来源挂到本条消息。
     // Business Rule: 检索失败降级为普通回答，绝不阻塞对话。
@@ -1344,6 +1327,25 @@ class ChatController extends ChangeNotifier {
         return 1;
     }
   }
+}
+
+/// 回放用的消息副本：只给用户正文拼身份名前缀，其余可回放字段原样带过去。
+/// Business Rule: 附件（file_id）由 buildApiMessages 读取，投影时漏拷字段会让多轮能力
+/// 在第二轮悄悄失效（实测表现为「上一轮读过文档、下一轮就失忆」）。
+ChatMessage replayMessage(ChatMessage message, String identityName) {
+  final bool prefix = message.isUser &&
+      identityName.isNotEmpty &&
+      message.content.isNotEmpty;
+  return ChatMessage(
+    id: message.id,
+    role: message.role,
+    content: prefix ? '$identityName：${message.content}' : message.content,
+    createdAt: message.createdAt,
+    status: message.status,
+    parentId: message.parentId,
+    reasoningContent: message.reasoningContent,
+    attachments: message.attachments,
+  );
 }
 
 /// 本地兜底会话标题：取用户首条消息的前 14 个字符。
