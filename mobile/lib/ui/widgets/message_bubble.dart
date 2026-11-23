@@ -8,6 +8,7 @@ import '../../data/models/chat_models.dart';
 import '../../data/services/file_upload_service.dart';
 import '../../data/services/tts_service.dart';
 import '../../state/chat_controller.dart';
+import 'markdown_theme.dart';
 import 'search_sources.dart';
 
 class MessageBubble extends StatelessWidget {
@@ -216,6 +217,7 @@ class _AssistantBubble extends StatelessWidget {
                 color: c.textPrimary,
               ),
               isStreaming: streaming,
+              styleSheet: markdownStyleSheet(c),
               onLinkTap: (String url, String? title) =>
                   _openLink(context, url, sources: message.sources),
               onImageTap: (String url) => _previewImage(context, url),
@@ -425,13 +427,16 @@ class _ReasoningBlockState extends State<_ReasoningBlock> {
               child: SingleChildScrollView(
                 controller: _scroll,
                 padding: const EdgeInsets.only(top: 6),
-                child: Text(
+                child: GptMarkdown(
                   widget.text,
                   style: TextStyle(
                     fontSize: 13,
                     height: 1.6,
                     color: c.reasoningText,
                   ),
+                  styleSheet: markdownStyleSheet(c),
+                  // 思考内容里的链接不可点，避免误触跳出对话。
+                  onLinkTap: (String url, String? title) {},
                 ),
               ),
             ),
