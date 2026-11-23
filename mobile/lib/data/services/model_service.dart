@@ -96,7 +96,9 @@ class ModelService {
       return _toModelInfos(mimoThinkingModels);
     }
     if (providerId == 'deepseek') {
-      return _toModelInfos(<String>['deepseek-chat', 'deepseek-reasoner']);
+      // 官方已于 2026-07-24 下线 deepseek-chat / deepseek-reasoner（见 V4 预览版公告），
+      // 现行模型为 deepseek-flash 与 deepseek-v4-pro；联网服务端工具也只在这两个模型下可用。
+      return _toModelInfos(<String>['deepseek-flash', 'deepseek-v4-pro']);
     }
     if (providerId == 'kimi') {
       return _toModelInfos(<String>[
