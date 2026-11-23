@@ -85,6 +85,7 @@ class SearchSource {
     required this.title,
     this.snippet,
     this.siteName,
+    this.siteIcon,
     this.publishedAt,
   });
 
@@ -92,6 +93,8 @@ class SearchSource {
   final String title;
   final String? snippet;
   final String? siteName;
+  /// 站点图标地址（服务端 site_icon，可能为 null 或不可访问，界面需要兜底）。
+  final String? siteIcon;
   final String? publishedAt;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -99,6 +102,7 @@ class SearchSource {
         'title': title,
         if (snippet != null) 'snippet': snippet,
         if (siteName != null) 'siteName': siteName,
+        if (siteIcon != null) 'siteIcon': siteIcon,
         if (publishedAt != null) 'publishedAt': publishedAt,
       };
 
@@ -111,11 +115,16 @@ class SearchSource {
       return null;
     }
     final Object? title = raw['title'];
+    final Object? siteIcon = raw['siteIcon'];
     return SearchSource(
       url: url,
       title: title is String && title.isNotEmpty ? title : url,
       snippet: raw['snippet'] is String ? raw['snippet'] as String : null,
       siteName: raw['siteName'] is String ? raw['siteName'] as String : null,
+      siteIcon: siteIcon is String &&
+              (siteIcon.startsWith('http://') || siteIcon.startsWith('https://'))
+          ? siteIcon
+          : null,
       publishedAt: raw['publishedAt'] is String ? raw['publishedAt'] as String : null,
     );
   }

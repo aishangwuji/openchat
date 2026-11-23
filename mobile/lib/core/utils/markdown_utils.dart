@@ -1,12 +1,45 @@
-/// Rewrites `[ref_N]` citations into clickable links.
+/// Rewrites inline citation tokens into clickable superscript links.
+///
+/// DeepSeek answers carry `[citation:N]` markers (official chat-demo format);
+/// older recordings in this app used `[ref_N]`, so both are accepted.
 ///
 /// Business Rule: fenced and inline code must be left untouched, otherwise a
-/// code sample containing `[ref_1]` would unexpectedly become a link.
-String rewriteCitations(String source) {
+/// code sample containing `[citation:1]` would unexpectedly become a link.
+/// A token without a matching source is dropped: showing a dangling number is
+/// worse than showing nothing (same rule as the official client).
+String rewriteCitations(String source, {int maxIndex = 0}) {
   final StringBuffer out = StringBuffer();
   int index = 0;
   bool inFence = false;
   bool inInlineCode = false;
+
+  // 返回 (序号, 标记结束位置)；识别 `[citation:N]` 与历史 `[ref_N]`。
+  (int, int)? tokenAt(int at) {
+    String? digits;
+    int end = -1;
+    if (source.startsWith('[citation:', at)) {
+      final int close = source.indexOf(']', at + 10);
+      if (close > at) {
+        digits = source.substring(at + 10, close);
+        end = close + 1;
+      }
+    } else if (source.startsWith('[ref_', at)) {
+      final int close = source.indexOf(']', at + 5);
+      if (close > at) {
+        digits = source.substring(at + 5, close);
+        end = close + 1;
+      }
+    }
+    if (digits == null) {
+      return null;
+    }
+    final int? value = int.tryParse(digits);
+    if (value == null || value <= 0) {
+      return null;
+    }
+    return (value, end);
+  }
+
   while (index < source.length) {
     if (source.startsWith('```', index)) {
       inFence = !inFence;
@@ -20,15 +53,15 @@ String rewriteCitations(String source) {
       index++;
       continue;
     }
-    if (!inFence && !inInlineCode && source.startsWith('[ref_', index)) {
-      final int close = source.indexOf(']', index + 5);
-      if (close > index) {
-        final String number = source.substring(index + 5, close);
-        if (int.tryParse(number) != null) {
-          out.write('[$number](#cite-$number)');
-          index = close + 1;
-          continue;
+    if (!inFence && !inInlineCode) {
+      final (int, int)? token = tokenAt(index);
+      if (token != null) {
+        // 没有来源或序号越界：整段丢掉，避免正文里残留编号。
+        if (maxIndex > 0 && token.$1 <= maxIndex) {
+          out.write('[${token.$1}](#cite-${token.$1})');
         }
+        index = token.$2;
+        continue;
       }
     }
     out.write(source[index]);
@@ -44,6 +77,10 @@ int? citationIndex(String href) {
   }
   return int.tryParse(href.substring(6));
 }
+
+/// 正文里是否已经带 `[citation:N]` 标记（有标记就不再按 annotations 偏移补角标）。
+bool hasCitationTokens(String content) =>
+    RegExp(r'\[(?:citation:\d+|ref_\d+)\]').hasMatch(content);
 
 bool isSafeExternalUrl(String href) {
   final Uri? uri = Uri.tryParse(href);

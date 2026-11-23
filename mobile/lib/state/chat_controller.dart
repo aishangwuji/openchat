@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 
 import '../data/models/chat_models.dart';
 import '../data/models/provider.dart';
+import '../core/utils/markdown_utils.dart';
 import '../data/services/auth_service.dart';
 
 import '../data/services/baizhi_web_search_service.dart';
@@ -852,7 +853,11 @@ class ChatController extends ChangeNotifier {
       }
       assistant.searching = false;
       assistant.searchHint = null;
-      if (citations.isNotEmpty && assistant.content.isNotEmpty) {
+      if (citations.isNotEmpty &&
+          assistant.content.isNotEmpty &&
+          // 正文自带 [citation:N] 标记时由渲染层就地替换，不能再按偏移补一遍，
+          // 否则同一处会出现两个角标（官方客户端也只保留标记这一种）。
+          !hasCitationTokens(assistant.content)) {
         assistant.content = injectCitationMarkers(
           assistant.content,
           citations,

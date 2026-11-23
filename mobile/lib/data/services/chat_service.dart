@@ -624,11 +624,16 @@ class ChatService {
     }
     final Object? title = raw['title'];
     final Object? publishedAt = raw['published_at'];
+    final Object? siteIcon = raw['site_icon'];
     return SearchSource(
       url: url,
       title: title is String && title.trim().isNotEmpty ? title.trim() : url,
       snippet: raw['snippet'] is String ? raw['snippet'] as String : null,
       siteName: raw['site_name'] is String ? raw['site_name'] as String : null,
+      siteIcon: siteIcon is String &&
+              (siteIcon.startsWith('http://') || siteIcon.startsWith('https://'))
+          ? siteIcon
+          : null,
       publishedAt: publishedAt is String ? publishedAt : null,
     );
   }
