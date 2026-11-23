@@ -262,6 +262,8 @@ export class ChatService {
                       const stcJson: string =
                         WebSearchService.serializeServerToolCalls(deltaRec['server_tool_calls']);
                       if (stcJson.length > 0) {
+                        // 诊断用：只记体积，不记 signature 内容（含网页正文密文）。
+                        hilog.info(DOMAIN, TAG, 'server_tool_calls: %{public}d chars', stcJson.length);
                         callbacks.onServerToolCalls(stcJson);
                       }
                     }
@@ -422,6 +424,8 @@ export class ChatService {
     }
     // 先过滤 user/assistant 并拼出待选（含 Preserved Thinking 回传）。
     const candidates: ApiMessageEntry[] = [];
+    let reminderCount: number = 0;
+    let toolCallReplayCount: number = 0;
     let i: number = 0;
     while (i < messages.length) {
       const m: ChatMessage = messages[i];
@@ -494,12 +498,14 @@ export class ChatService {
       }
       if (replayedToolCalls !== undefined) {
         item['server_tool_calls'] = replayedToolCalls as ESObject;
+        toolCallReplayCount += 1;
       }
       // 用户元信息标记：紧挨在它所属的 user 消息之前（协议要求，中间不能插别的消息）。
       const items: Record<string, ESObject>[] = [];
       if (reminder !== undefined && m.role === 'user') {
         items.push(ChatService.buildReminderEntry(m, reminder));
         chars += ChatService.REMINDER_CHARS;
+        reminderCount += 1;
       }
       items.push(item);
       const entry: ApiMessageEntry = { items: items, chars: chars };
@@ -523,6 +529,10 @@ export class ChatService {
       used += c.chars;
       j -= 1;
     }
+    // 诊断用：latest_reminder 是否真的进了请求（不含所在地等隐私字段，只看条数）。
+    hilog.info(DOMAIN, TAG, 'reminder: %{public}d user turns', reminderCount);
+    // 诊断用：阅读链接 signature 是否随历史回传（只记条数，不记内容）。
+    hilog.info(DOMAIN, TAG, 'server_tool_calls replay: %{public}d turns', toolCallReplayCount);
     let k: number = 0;
     while (k < kept.length) {
       const unit: ApiMessageEntry = kept[k];
