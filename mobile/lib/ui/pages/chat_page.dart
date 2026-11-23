@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/theme/app_colors.dart';
+import '../../core/utils/session_groups.dart';
 import '../../data/models/chat_models.dart';
-import '../../data/models/provider.dart';
 import '../../state/chat_controller.dart';
 import '../widgets/message_bubble.dart';
 import 'dart:io';
@@ -897,100 +897,9 @@ class _SessionDrawerState extends State<_SessionDrawer> {
                         style: TextStyle(fontSize: 13, color: c.textMuted),
                       ),
                     )
-                  : ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(4, 6, 4, 10),
-                      itemCount: sessions.length,
-                      itemBuilder: (BuildContext context, int index) {
-                        final ChatSession session = sessions[index];
-                        final bool selected =
-                            session.id == chat.currentSessionId;
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 2),
-                          child: InkWell(
-                            borderRadius: BorderRadius.circular(14),
-                            onTap: () async {
-                              Navigator.of(context).pop();
-                              await chat.openSessionWithPrivacy(session);
-                            },
-                            onLongPress: () =>
-                                showSessionActions(context, session),
-                            child: Container(
-                              padding: const EdgeInsets.fromLTRB(
-                                14,
-                                12,
-                                14,
-                                12,
-                              ),
-                              // 与鸿蒙端一致：扁平行，只有选中项用色块浮起。
-                              decoration: BoxDecoration(
-                                color: selected
-                                    ? c.accentSoftSelected
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(14),
-                              ),
-                              child: Row(
-                                children: <Widget>[
-                                  Expanded(
-                                    child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: <Widget>[
-                                        Row(
-                                          children: <Widget>[
-                                            if (session.isPrivate)
-                                              Padding(
-                                                padding:
-                                                    const EdgeInsets.only(
-                                                  right: 4,
-                                                ),
-                                                child: Icon(
-                                                  Icons.lock_outline_rounded,
-                                                  size: 13,
-                                                  color: c.accent,
-                                                ),
-                                              ),
-                                            Expanded(
-                                              child: Text(
-                                                session.title,
-                                                maxLines: 1,
-                                                overflow:
-                                                    TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  fontSize: 15,
-                                                  fontWeight: selected
-                                                      ? FontWeight.w600
-                                                      : FontWeight.w400,
-                                                  color: selected
-                                                      ? c.accent
-                                                      : c.textPrimary,
-                                                ),
-                                              ),
-                                            ),
-                                          ],
-                                        ),
-                                        const SizedBox(height: 4),
-                                        Text(
-                                          '${_providerName(session.providerId)} · '
-                                          '${session.messages.length} 条消息',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            color: c.textMuted,
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                  Icon(
-                                    Icons.chevron_right_rounded,
-                                    size: 20,
-                                    color: c.iconMuted,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        );
-                      },
+                  : ListView(
+                      padding: const EdgeInsets.fromLTRB(4, 2, 4, 10),
+                      children: _buildSessionList(context, c, chat, sessions),
                     ),
             ),
             Divider(color: c.borderSoft, height: 1),
@@ -1017,13 +926,95 @@ class _SessionDrawerState extends State<_SessionDrawer> {
     );
   }
 
-  String _providerName(String id) {
-    for (final ProviderDefinition p in providers) {
-      if (p.id == id) {
-        return p.name;
+  /// 按时间线分组渲染：组标题 + 会话行（对齐官方侧栏的信息密度）。
+  List<Widget> _buildSessionList(
+    BuildContext context,
+    AppColors c,
+    ChatController chat,
+    List<ChatSession> sessions,
+  ) {
+    final List<Widget> out = <Widget>[];
+    for (final SessionGroup group in groupSessions(sessions)) {
+      out.add(
+        Padding(
+          padding: const EdgeInsets.fromLTRB(14, 10, 14, 4),
+          child: Text(
+            group.label,
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w500,
+              letterSpacing: 0.2,
+              color: c.textMuted,
+            ),
+          ),
+        ),
+      );
+      for (final ChatSession session in group.sessions) {
+        out.add(_sessionTile(context, c, chat, session));
       }
     }
-    return id;
+    return out;
+  }
+
+  Widget _sessionTile(
+    BuildContext context,
+    AppColors c,
+    ChatController chat,
+    ChatSession session,
+  ) {
+    final bool selected = session.id == chat.currentSessionId;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 2),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: () async {
+          Navigator.of(context).pop();
+          await chat.openSessionWithPrivacy(session);
+        },
+        onLongPress: () => showSessionActions(context, session),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+          // 与官方一致：扁平行，只有选中项用色块浮起。
+          decoration: BoxDecoration(
+            color: selected ? c.accentSoftSelected : Colors.transparent,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Row(
+            children: <Widget>[
+              if (session.isPrivate)
+                Padding(
+                  padding: const EdgeInsets.only(right: 4),
+                  child: Icon(
+                    Icons.lock_outline_rounded,
+                    size: 13,
+                    color: c.accent,
+                  ),
+                ),
+              Expanded(
+                child: Text(
+                  session.title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                    color: selected ? c.accent : c.textPrimary,
+                  ),
+                ),
+              ),
+              IconButton(
+                tooltip: '更多',
+                visualDensity: VisualDensity.compact,
+                iconSize: 18,
+                color: c.iconMuted,
+                onPressed: () => showSessionActions(context, session),
+                icon: const Icon(Icons.more_horiz_rounded),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
 
