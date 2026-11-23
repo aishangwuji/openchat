@@ -220,6 +220,13 @@ class _AssistantBubble extends StatelessWidget {
               ),
               isStreaming: streaming,
               styleSheet: markdownStyleSheet(c),
+              // 角标芯片：`[N]` 由 rewriteCitations 生成，点开来源面板并高亮。
+              onSourceTagTap: (String id) {
+                final int? number = int.tryParse(id.trim());
+                if (number != null && number >= 1) {
+                  showSourcePanel(context, message.sources, highlight: number);
+                }
+              },
               onLinkTap: (String url, String? title) =>
                   _openLink(context, url, sources: message.sources),
               onImageTap: (String url) => _previewImage(context, url),

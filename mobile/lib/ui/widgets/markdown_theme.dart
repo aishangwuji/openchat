@@ -57,8 +57,20 @@ GptMarkdownStyleSheet markdownStyleSheet(AppColors c) {
       rowStripeColor: c.surfaceAlt.withValues(alpha: 0.4),
       overflow: TableOverflow.scroll,
     ),
-    blockQuote: BlockQuoteStyle(
-      barColor: c.borderCard,
+    // 引用角标：`[N]` 芯片，浅强调底 + 强调色数字，与来源面板序号一致。
+    sourceTag: SourceTagStyle(
+      backgroundColor: c.accentSoft,
+      textStyle: TextStyle(
+        fontSize: 9.5,
+        height: 1.15,
+        fontWeight: FontWeight.w600,
+        color: c.accent,
+      ),
+      size: 18,
+      shape: BoxShape.circle,
+      padding: const EdgeInsets.all(1),
+    ),
+    blockQuote: BlockQuoteStyle(      barColor: c.borderCard,
       barWidth: 3,
       barRadius: const Radius.circular(2),
       backgroundColor: c.surfaceAlt,

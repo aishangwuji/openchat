@@ -56,9 +56,10 @@ String rewriteCitations(String source, {int maxIndex = 0}) {
     if (!inFence && !inInlineCode) {
       final (int, int)? token = tokenAt(index);
       if (token != null) {
-        // 没有来源或序号越界：整段丢掉，避免正文里残留编号。
+        // 有对应来源时换成 `[N]`：gpt_markdown 的 source tag 会渲染成角标芯片，
+        // 由 onSourceTagTap 打开来源面板；没有来源或越界的整段丢掉。
         if (maxIndex > 0 && token.$1 <= maxIndex) {
-          out.write('[${token.$1}](#cite-${token.$1})');
+          out.write('[${token.$1}]');
         }
         index = token.$2;
         continue;
