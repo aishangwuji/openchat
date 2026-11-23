@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:gpt_markdown/gpt_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -244,6 +246,7 @@ class _AssistantBubble extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(top: 6, left: 2),
             child: _ReadAloudButton(
+              messageId: message.id,
               text: message.content,
               apiKey: controller.currentApiKey,
               voice: controller.ttsVoice,
@@ -594,14 +597,16 @@ void _previewImage(BuildContext context, String url) {
   );
 }
 
-/// 朗读按钮：合成 + 播放，播放中再点一次停止。
+/// 朗读按钮：合成 + 播放；全局同一时刻只有一条在播，播放中显示跳动的音柱。
 class _ReadAloudButton extends StatefulWidget {
   const _ReadAloudButton({
+    required this.messageId,
     required this.text,
     required this.apiKey,
     required this.voice,
   });
 
+  final String messageId;
   final String text;
   final String apiKey;
   final String voice;
@@ -612,50 +617,48 @@ class _ReadAloudButton extends StatefulWidget {
 
 class _ReadAloudButtonState extends State<_ReadAloudButton> {
   bool _busy = false;
-  bool _playing = false;
 
   @override
   Widget build(BuildContext context) {
     final AppColors c = context.colors;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: _busy ? null : _toggle,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            if (_busy)
-              const SizedBox(
-                width: 14,
-                height: 14,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              Icon(
-                _playing
-                    ? Icons.stop_circle_outlined
-                    : Icons.volume_up_outlined,
-                size: 16,
-                color: c.textMuted,
-              ),
-            const SizedBox(width: 4),
-            Text(
-              _playing ? '停止' : '朗读',
-              style: TextStyle(fontSize: 11, color: c.textMuted),
+    return ValueListenableBuilder<String?>(
+      valueListenable: TtsService.playingOwner,
+      builder: (BuildContext context, String? owner, _) {
+        final bool playing = owner == widget.messageId;
+        return InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: _busy ? null : _toggle,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                if (_busy)
+                  const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                else if (playing)
+                  _PlayingBars(color: c.accent)
+                else
+                  Icon(Icons.volume_up_outlined, size: 16, color: c.textMuted),
+                const SizedBox(width: 4),
+                Text(
+                  playing ? '停止' : '朗读',
+                  style: TextStyle(fontSize: 11, color: c.textMuted),
+                ),
+              ],
             ),
-          ],
-        ),
-      ),
+          ),
+        );
+      },
     );
   }
 
   Future<void> _toggle() async {
-    if (_playing) {
+    if (TtsService.playingOwner.value == widget.messageId) {
       await TtsService.stop();
-      if (mounted) {
-        setState(() => _playing = false);
-      }
       return;
     }
     setState(() => _busy = true);
@@ -664,14 +667,12 @@ class _ReadAloudButtonState extends State<_ReadAloudButton> {
         text: widget.text,
         apiKey: widget.apiKey,
         voiceId: widget.voice,
+        ownerId: widget.messageId,
       );
-      if (mounted) {
-        setState(() => _playing = true);
-      }
     } on TtsException catch (error) {
       _snack(error.message);
     } catch (error) {
-      _snack('朗读失败：');
+      _snack('朗读失败：$error');
     } finally {
       if (mounted) {
         setState(() => _busy = false);
@@ -688,3 +689,57 @@ class _ReadAloudButtonState extends State<_ReadAloudButton> {
     );
   }
 }
+
+/// 播放中的三根音柱：纯装饰动效，相位错开形成「跳动」感。
+class _PlayingBars extends StatefulWidget {
+  const _PlayingBars({required this.color});
+
+  final Color color;
+
+  @override
+  State<_PlayingBars> createState() => _PlayingBarsState();
+}
+
+class _PlayingBarsState extends State<_PlayingBars>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      width: 16,
+      height: 14,
+      child: AnimatedBuilder(
+        animation: _controller,
+        builder: (BuildContext context, _) {
+          return Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: <Widget>[
+              for (int i = 0; i < 3; i++)
+                Container(
+                  width: 3,
+                  height: 4 + 9 * (0.5 + 0.5 * math.sin(_controller.value * 2 * math.pi + i)),
+                  decoration: BoxDecoration(
+                    color: widget.color,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+

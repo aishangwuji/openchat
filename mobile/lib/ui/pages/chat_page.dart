@@ -6,6 +6,7 @@ import '../../core/utils/session_groups.dart';
 import '../../data/models/chat_models.dart';
 import '../../state/chat_controller.dart';
 import '../widgets/message_bubble.dart';
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -38,6 +39,17 @@ class _ChatPageState extends State<ChatPage> {
   final AudioRecorder _recorder = AudioRecorder();
   bool _recording = false;
   bool _recordBusy = false;
+  /// 语音识别中（录音已结束、等转写返回）。
+  bool _transcribing = false;
+  /// 本次录音已录秒数，录音中每 500ms 刷新。
+  int _recordSeconds = 0;
+  /// 当前音量（0~1，由振幅 dBFS 归一化），驱动录音波形。
+  double _recordLevel = 0;
+  Timer? _recordTimer;
+  StreamSubscription<Amplitude>? _amplitudeSub;
+  /// 录音/转写操作代号：取消后旧回调按代号丢弃，避免晚到的结果污染输入框。
+  int _recordOp = 0;
+  DateTime _recordStartedAt = DateTime.now();
   int _lastPathLength = 0;
 
   @override
@@ -59,6 +71,8 @@ class _ChatPageState extends State<ChatPage> {
       ..removeListener(_onScroll)
       ..dispose();
     _input.dispose();
+    _recordTimer?.cancel();
+    _amplitudeSub?.cancel();
     super.dispose();
   }
 
@@ -366,69 +380,156 @@ class _ChatPageState extends State<ChatPage> {
 
   /// 语音输入：点一下开始录音、再点一下停止并转写。
   Future<void> _toggleRecord(ChatController chat) async {
-    if (_recordBusy) {
+    if (_recordBusy && !_transcribing) {
       return;
     }
-    if (!_recording) {
-      try {
-        if (!await _recorder.hasPermission()) {
-          _showSnack('没有麦克风权限，请在系统设置中开启');
-          return;
-        }
-        final Directory dir = await getTemporaryDirectory();
-        final String path =
-            '${dir.path}/asr_${DateTime.now().millisecondsSinceEpoch}.wav';
-        await _recorder.start(
-          const RecordConfig(
-            encoder: AudioEncoder.wav,
-            sampleRate: 16000,
-            numChannels: 1,
-          ),
-          path: path,
-        );
-        if (!mounted) {
-          return;
-        }
-        setState(() => _recording = true);
-      } catch (error) {
-        _showSnack('录音启动失败：');
-      }
+    if (_transcribing) {
+      // 转写中再点一次 = 取消：递增代号让在途结果被丢弃。
+      _recordOp++;
+      setState(() => _transcribing = false);
       return;
     }
-    setState(() {
-      _recording = false;
-      _recordBusy = true;
-    });
+    if (_recording) {
+      await _finishRecording(chat, cancel: false);
+      return;
+    }
+    await _startRecording();
+  }
+
+  Future<void> _startRecording() async {
     try {
-      final String? path = await _recorder.stop();
-      if (path == null) {
+      if (!await _recorder.hasPermission()) {
+        _showSnack('没有麦克风权限，请在系统设置中开启');
         return;
       }
+      final Directory dir = await getTemporaryDirectory();
+      final String path =
+          '${dir.path}/asr_${DateTime.now().millisecondsSinceEpoch}.wav';
+      await _recorder.start(
+        const RecordConfig(
+          encoder: AudioEncoder.wav,
+          sampleRate: 16000,
+          numChannels: 1,
+        ),
+        path: path,
+      );
+      if (!mounted) {
+        return;
+      }
+      final int op = ++_recordOp;
+      _recordStartedAt = DateTime.now();
+      setState(() {
+        _recording = true;
+        _recordSeconds = 0;
+        _recordLevel = 0;
+      });
+      _recordTimer?.cancel();
+      _recordTimer = Timer.periodic(const Duration(milliseconds: 500), (_) {
+        if (!mounted || op != _recordOp || !_recording) {
+          return;
+        }
+        setState(() {
+          _recordSeconds = DateTime.now().difference(_recordStartedAt).inSeconds;
+        });
+      });
+      await _amplitudeSub?.cancel();
+      // 振幅用于录音波形：dBFS 常见 -60~0，归一到 0~1 再画。
+      _amplitudeSub =
+          _recorder.onAmplitudeChanged(const Duration(milliseconds: 120)).listen(
+        (Amplitude amp) {
+          if (!mounted || op != _recordOp) {
+            return;
+          }
+          final double level = ((amp.current + 60) / 60).clamp(0.0, 1.0);
+          setState(() => _recordLevel = level);
+        },
+      );
+    } catch (error) {
+      _showSnack('录音启动失败：$error');
+    }
+  }
+
+  /// 结束录音并转写；[cancel] 为真时只丢弃录音、不请求识别。
+  Future<void> _finishRecording(
+    ChatController chat, {
+    required bool cancel,
+  }) async {
+    final int op = ++_recordOp;
+    _recordTimer?.cancel();
+    _recordTimer = null;
+    await _amplitudeSub?.cancel();
+    _amplitudeSub = null;
+    if (mounted) {
+      setState(() {
+        _recording = false;
+        _recordLevel = 0;
+      });
+    }
+    String? path;
+    try {
+      path = await _recorder.stop();
+    } catch (_) {
+      path = null;
+    }
+    if (cancel) {
+      if (path != null) {
+        try {
+          await File(path).delete();
+        } catch (_) {
+          // 临时文件删不掉不影响对话。
+        }
+      }
+      return;
+    }
+    if (path == null) {
+      _showSnack('录音失败，请重试');
+      return;
+    }
+    if (mounted) {
+      setState(() {
+        _transcribing = true;
+        _recordBusy = true;
+      });
+    }
+    try {
       final Uint8List bytes = await File(path).readAsBytes();
       final String text = await AsrService.transcribe(
         apiKey: chat.currentApiKey,
         wavBytes: bytes,
       );
-      if (!mounted) {
+      if (!mounted || op != _recordOp) {
         return;
       }
-      if (text.isEmpty) {
+      if (text.trim().isEmpty) {
         _showSnack('没有识别到语音内容');
         return;
       }
       setState(() {
         final String current = _input.text.trim();
-        _input.text = current.isEmpty ? text : ' ';
+        // 识别结果追加在已有草稿后面（此前会把草稿整体替换成一个空格）。
+        _input.text = current.isEmpty ? text.trim() : '$current ${text.trim()}';
         _input.selection =
             TextSelection.collapsed(offset: _input.text.length);
       });
     } on AsrException catch (error) {
-      _showSnack(error.message);
+      if (op == _recordOp) {
+        _showSnack(error.message);
+      }
     } catch (error) {
-      _showSnack('语音识别失败：');
+      if (op == _recordOp) {
+        _showSnack('语音识别失败：$error');
+      }
     } finally {
       if (mounted) {
-        setState(() => _recordBusy = false);
+        setState(() {
+          _recordBusy = false;
+          _transcribing = false;
+        });
+      }
+      try {
+        await File(path).delete();
+      } catch (_) {
+        // 忽略清理失败。
       }
     }
   }
@@ -534,6 +635,25 @@ class _ChatPageState extends State<ChatPage> {
                 ],
               ),
             ),
+          if (_recording)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _RecordStatusBar(
+                seconds: _recordSeconds,
+                level: _recordLevel,
+                onCancel: () => _finishRecording(chat, cancel: true),
+              ),
+            ),
+          if (_transcribing)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 10),
+              child: _TranscribingBar(
+                onCancel: () {
+                  _recordOp++;
+                  setState(() => _transcribing = false);
+                },
+              ),
+            ),
           Row(
             crossAxisAlignment: _inputExpanded
                 ? CrossAxisAlignment.end
@@ -543,8 +663,14 @@ class _ChatPageState extends State<ChatPage> {
                 Padding(
                   padding: const EdgeInsets.only(right: 4, bottom: 6),
                   child: IconButton(
-                    tooltip: _recording ? '停止录音' : '语音输入',
-                    onPressed: _recordBusy ? null : () => _toggleRecord(chat),
+                    tooltip: _recording
+                        ? '停止录音'
+                        : _transcribing
+                            ? '取消识别'
+                            : '语音输入',
+                    onPressed: _recordBusy && !_transcribing
+                        ? null
+                        : () => _toggleRecord(chat),
                     icon: _recordBusy
                         ? const SizedBox(
                             width: 18,
@@ -715,6 +841,172 @@ class _ChatPageState extends State<ChatPage> {
         showBindSheet(context);
       }
     });
+  }
+}
+
+/// 录音中的状态条：呼吸红点 + 计时 + 音量波形 + 取消。
+///
+/// 对齐官方客户端的「录音中 Ns」语义：录音是显式进行中的状态，
+/// 必须有停止之外的取消出口，否则误触只能等识别完。
+class _RecordStatusBar extends StatefulWidget {
+  const _RecordStatusBar({
+    required this.seconds,
+    required this.level,
+    required this.onCancel,
+  });
+
+  final int seconds;
+  final double level;
+  final VoidCallback onCancel;
+
+  @override
+  State<_RecordStatusBar> createState() => _RecordStatusBarState();
+}
+
+class _RecordStatusBarState extends State<_RecordStatusBar>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _pulse = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 900),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _pulse.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = context.colors;
+    final int minutes = widget.seconds ~/ 60;
+    final int seconds = widget.seconds % 60;
+    final String clock =
+        '$minutes:${seconds.toString().padLeft(2, '0')}';
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: c.surfaceAlt,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.borderSoft),
+      ),
+      child: Row(
+        children: <Widget>[
+          FadeTransition(
+            opacity: _pulse.drive(Tween<double>(begin: 0.35, end: 1)),
+            child: Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                color: c.dangerText,
+                shape: BoxShape.circle,
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '录音中 $clock',
+            style: TextStyle(fontSize: 12.5, color: c.textPrimary),
+          ),
+          const SizedBox(width: 10),
+          _LevelBars(level: widget.level),
+          const Spacer(),
+          TextButton(
+            onPressed: widget.onCancel,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(0, 30),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            ),
+            child: Text(
+              '取消',
+              style: TextStyle(fontSize: 12, color: c.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 识别中的状态条：转圈 + 提示 + 取消（取消后晚到的结果会被丢弃）。
+class _TranscribingBar extends StatelessWidget {
+  const _TranscribingBar({required this.onCancel});
+
+  final VoidCallback onCancel;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = context.colors;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: c.surfaceAlt,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: c.borderSoft),
+      ),
+      child: Row(
+        children: <Widget>[
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(strokeWidth: 2, color: c.accent),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '正在识别语音…',
+            style: TextStyle(fontSize: 12.5, color: c.textPrimary),
+          ),
+          const Spacer(),
+          TextButton(
+            onPressed: onCancel,
+            style: TextButton.styleFrom(
+              visualDensity: VisualDensity.compact,
+              minimumSize: const Size(0, 30),
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+            ),
+            child: Text(
+              '取消',
+              style: TextStyle(fontSize: 12, color: c.textSecondary),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// 录音音量条：五根柱子，高度由当前振幅（0~1）与固定相位权重决定。
+class _LevelBars extends StatelessWidget {
+  const _LevelBars({required this.level});
+
+  final double level;
+
+  static const List<double> _weights = <double>[0.5, 0.85, 1.0, 0.7, 0.45];
+
+  @override
+  Widget build(BuildContext context) {
+    final AppColors c = context.colors;
+    return SizedBox(
+      width: 46,
+      height: 16,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: <Widget>[
+          for (int i = 0; i < _weights.length; i++)
+            AnimatedContainer(
+              duration: const Duration(milliseconds: 120),
+              width: 4,
+              height: 3 + 13 * (_weights[i] * level).clamp(0.0, 1.0),
+              decoration: BoxDecoration(
+                color: c.accent,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

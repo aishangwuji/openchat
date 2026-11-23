@@ -1,8 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:audioplayers/audioplayers.dart';
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:path_provider/path_provider.dart';
 
@@ -23,6 +23,9 @@ class TtsService {
   static final AudioPlayer _player = AudioPlayer();
   static String _playingKey = '';
 
+  /// 当前正在朗读的消息 id（null 表示没有在播）；全局单实例，避免两条消息同时显示「停止」。
+  static final ValueNotifier<String?> playingOwner = ValueNotifier<String?>(null);
+
   /// 当前正在朗读的缓存 key（空串表示未播放）。
   static String get playingKey => _playingKey;
 
@@ -31,6 +34,7 @@ class TtsService {
     required String text,
     required String apiKey,
     String voiceId = defaultVoice,
+    String? ownerId,
   }) async {
     final String key = apiKey.trim();
     if (key.isEmpty) {
@@ -57,10 +61,14 @@ class TtsService {
     }
     await _player.stop();
     _playingKey = cacheKey;
+    playingOwner.value = ownerId;
     await _player.play(DeviceFileSource(file.path));
     _player.onPlayerComplete.first.then((_) {
       if (_playingKey == cacheKey) {
         _playingKey = '';
+        if (playingOwner.value == ownerId) {
+          playingOwner.value = null;
+        }
       }
     });
     return cacheKey;
@@ -68,6 +76,7 @@ class TtsService {
 
   static Future<void> stop() async {
     _playingKey = '';
+    playingOwner.value = null;
     await _player.stop();
   }
 
