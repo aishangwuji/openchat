@@ -42,11 +42,19 @@
 - **不可达链接**：发 `https://no-such-host-9f7a.example/`，模型回答
   「host 不存在或不可达」，没有卡在「正在阅读链接…」，也没有产生 signature；
   界面未崩溃。
-- **内容安全拒答（部分）**：开启「模型内容安全」后发被禁请求（制作爆炸物），
+- **内容安全拒答（部分）**：开启「模型内容安全」（请求日志 `safety=true`）后发被禁请求（制作爆炸物），
   模型给出正常的对话式拒绝（英文说明无法提供），**没有**走到我们 `onRefusal` 的
-  「内容未通过安全审核」文案——说明这次是模型级拒绝，不是 `safety_check` 命中
-  （输入未触发 400、输出未 content_filter）。`url_not_allowed` 与 safety_check 命中
-  文案仍未验证（设备在测试中途断开）。
+  「内容未通过安全审核」文案——这次是模型级拒绝，不是 `safety_check` 命中
+  （输入未触发 400、输出未 content_filter）。
+- **`url_not_allowed`（网页被安全审核拦截）**：同一安全开关下，让模型读
+  `https://en.wikipedia.org/wiki/Methamphetamine`，工具日志为
+  `kind=deep_search action=open_page ... failed=true error=url_not_allowed`；
+  模型随后说明「无法抓取该页面」并给出替代方案，界面没有卡在「正在阅读链接…」，
+  也没有产生 signature。
+  - 顺带修了一处文案：原来失败也走 `searchedLabel()`，显示「搜索已完成，正在整理答案…」，
+    看起来像搜到了东西；现在 read_link 失败统一提示「链接读取失败，继续整理答案…」
+    （`8a00d5e`），并把 `error.code` 记进工具日志，区分 `url_not_accessible` /
+    `url_not_allowed` / `unavailable`。
 - **留存体积优化**：深搜一次 `server_tool_calls` 实测 18070 字符，但都是无 signature 的
   `open_page`，不会进入后续上下文。改为只留存带 signature 的调用（`e2b72ed`）后：
   深搜不再留存任何内容，阅读链接仍为 2239 字符且下一轮 `replay: 1`。
@@ -59,11 +67,17 @@
 
 1. 切换到 Kimi / 小米 MiMo 时不注入 `latest_reminder`、不声明 `deepseek_read_url`（否则 400）。
    真机模型选择器里当前只有 DeepSeek 两个模型，其它服务商未配 Key，无法测。
-2. `safety_check` 命中的拒答文案（模型级拒绝已观察，拦截级未触发）。
-3. `url_not_allowed`（安全审核拦截网页）：设备在测试中途断开，未执行。
-4. 移动端（Flutter）同项目测：本机无模拟器/真机，只能静态验证，见 TD-004。
-5. 跨零点后的 reminder 日期（应取新消息时间而不是会话创建时间）。
-6. 思考+搜索组合下「同一轮既搜索又读用户链接」的用例——按协议本就不会发生，未构造。
+2. `safety_check` **拦截级**拒答文案（`finish_reason=content_filter` / `refusal` / 输入 400
+   `Content Exists Risk`）。模型级礼貌拒绝已观察到，但没有构造出真正命中审核的样本；
+   这类样本应在合规红队环境中验证，不在此随手构造。
+3. 移动端（Flutter）同项目测：本机无模拟器/真机，只能静态验证，见 TD-004。
+4. 跨零点后的 reminder 日期（应取新消息时间而不是会话创建时间）。
+5. 思考+搜索组合下「同一轮既搜索又读用户链接」的用例——按协议本就不会发生，未构造。
+
+## 现场设置
+
+测试结束后已把设备恢复默认：深度思考开、智能搜索关、模型内容安全关
+（通过设置页 Toggle 的 `checked` 属性与聊天页胶囊背景色核对）。
 
 ## 回归通过后
 
