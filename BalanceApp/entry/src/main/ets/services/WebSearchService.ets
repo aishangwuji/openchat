@@ -34,13 +34,15 @@ export type SearchPhase = 'started' | 'completed';
 export interface SearchProgress {
   /** started=调用发起（带 queries/action）；completed=调用结束（带 sources/失败标记）。 */
   phase: SearchPhase;
-  /** search / deep_search / image_search / deep_image_search。 */
+  /** search / deep_search / read_link / image_search / deep_image_search。 */
   kind: string;
-  /** 调用动作：search / open_page / find_in_page（深搜时后两者不带 queries）。 */
+  /** 调用动作：search / open_page / find_in_page / read_link（深搜时后两者不带 queries）。 */
   action: string;
   queries: string[];
   sources: SearchSource[];
   failed: boolean;
+  /** 失败时的服务端错误码（url_not_accessible / url_not_allowed / unavailable）。 */
+  errorCode?: string;
 }
 
 export class WebSearchService {
@@ -149,6 +151,16 @@ export class WebSearchService {
     }
     const statusVal: ESObject = callRec['status'];
     const failed: boolean = typeStr === 'call_completed' && statusVal === 'failed';
+    // 失败时服务端给 error.code：url_not_accessible / url_not_allowed / unavailable。
+    let errorCode: string = '';
+    const errVal: ESObject = callRec['error'];
+    if (errVal !== null && typeof errVal === 'object') {
+      const errRec: Record<string, ESObject> = errVal as Record<string, ESObject>;
+      const codeVal: ESObject = errRec['code'];
+      if (typeof codeVal === 'string') {
+        errorCode = codeVal as string;
+      }
+    }
 
     const progress: SearchProgress = {
       phase: typeStr === 'call_started' ? 'started' : 'completed',
@@ -156,7 +168,8 @@ export class WebSearchService {
       action: actionType,
       queries: queries,
       sources: sources,
-      failed: failed
+      failed: failed,
+      errorCode: errorCode.length > 0 ? errorCode : undefined
     };
     return progress;
   }

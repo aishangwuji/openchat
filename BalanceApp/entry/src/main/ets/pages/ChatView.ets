@@ -2588,16 +2588,22 @@ export struct ChatView {
         },
         onSearch: (progress: SearchProgress) => {
           // 诊断用：只记工具类型与动作，不记关键词（可能含用户输入）。
-          hilog.info(DOMAIN, TAG, 'tool %{public}s kind=%{public}s action=%{public}s sources=%{public}d failed=%{public}s',
+          hilog.info(DOMAIN, TAG, 'tool %{public}s kind=%{public}s action=%{public}s sources=%{public}d failed=%{public}s error=%{public}s',
             progress.phase, progress.kind, progress.action, progress.sources.length,
-            String(progress.failed));
+            String(progress.failed), progress.errorCode !== undefined ? progress.errorCode : '-');
           assistantMsg.searchState = progress.phase === 'started' ? 'searching' : 'done';
           if (progress.sources.length > 0) {
             assistantMsg.sources = WebSearchService.mergeSources(assistantMsg.sources, progress.sources);
           }
           const count: number = assistantMsg.sources !== undefined ? assistantMsg.sources.length : 0;
-          assistantMsg.searchHint = progress.phase === 'started' ?
-            WebSearchService.startedLabel(progress) : WebSearchService.searchedLabel(count);
+          if (progress.phase === 'started') {
+            assistantMsg.searchHint = WebSearchService.startedLabel(progress);
+          } else if (progress.failed && (progress.action === 'read_link' || progress.kind === 'read_link')) {
+            // 阅读链接失败（链接不可达或被内容安全拦截）：给明确失败提示，别停在「正在阅读」。
+            assistantMsg.searchHint = '链接读取失败，继续整理答案…';
+          } else {
+            assistantMsg.searchHint = WebSearchService.searchedLabel(count);
+          }
           // 与 token 走同一节流刷新：预正文阶段 searchState/来源数已进渲染键，提示与卡片才能出现。
           this.refreshStreamView(assistantMsg);
         },
