@@ -106,4 +106,50 @@ void main() {
     });
     expect(corrupt?.serverToolCallsJson, isEmpty);
   });
+
+  test('prune keeps only calls carrying a signature', () {
+    final Object? raw = jsonDecode(jsonEncode(<Map<String, dynamic>>[
+      <String, dynamic>{
+        'index': 0,
+        'calls': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'kind': 'deep_search',
+            'action': <String, dynamic>{'type': 'open_page', 'url': 'https://a.com'},
+          },
+        ],
+      },
+      <String, dynamic>{
+        'index': 1,
+        'calls': <Map<String, dynamic>>[
+          <String, dynamic>{
+            'kind': 'read_link',
+            'action': <String, dynamic>{'type': 'read_link', 'url': 'https://b.com'},
+            'signature': 'sig-b',
+          },
+        ],
+      },
+    ]));
+
+    final List<Map<String, dynamic>>? pruned = pruneServerToolCalls(raw as List<Object?>);
+    expect(pruned, isNotNull);
+    // 只留下第二步（索引保持原值），第一步整步被丢弃。
+    expect(pruned!.length, 1);
+    expect(pruned.single['index'], 1);
+    expect((pruned.single['calls'] as List<dynamic>).length, 1);
+
+    // 纯搜索结果不产生需要回传的内容。
+    expect(
+      pruneServerToolCalls(<Object?>[
+        <String, dynamic>{
+          'calls': <Map<String, dynamic>>[
+            <String, dynamic>{
+              'kind': 'search',
+              'action': <String, dynamic>{'type': 'search'},
+            },
+          ],
+        },
+      ]),
+      isNull,
+    );
+  });
 }

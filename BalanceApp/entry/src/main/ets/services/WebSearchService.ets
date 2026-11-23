@@ -308,9 +308,56 @@ export class WebSearchService {
     if (!Array.isArray(raw)) {
       return '';
     }
+    // Business Rule: 只有阅读链接的 signature 需要回传——深度思考搜索打开的网页
+    //   没有 signature，也不进入后续轮次上下文（官方《多轮对话》），留着只会在
+    //   会话 JSON 里堆几十 KB（实测一次深搜 18KB）。
+    const steps: ESObject[] = raw as ESObject[];
+    const pruned: ESObject[] = [];
+    let i: number = 0;
+    while (i < steps.length) {
+      const step: ESObject = steps[i];
+      i += 1;
+      if (step === null || typeof step !== 'object' || Array.isArray(step)) {
+        continue;
+      }
+      const stepRec: Record<string, ESObject> = step as Record<string, ESObject>;
+      const callsVal: ESObject = stepRec['calls'];
+      if (!Array.isArray(callsVal)) {
+        continue;
+      }
+      const calls: ESObject[] = callsVal as ESObject[];
+      const kept: ESObject[] = [];
+      let j: number = 0;
+      while (j < calls.length) {
+        const call: ESObject = calls[j];
+        j += 1;
+        if (call === null || typeof call !== 'object' || Array.isArray(call)) {
+          continue;
+        }
+        const callRec: Record<string, ESObject> = call as Record<string, ESObject>;
+        const sig: ESObject = callRec['signature'];
+        if (typeof sig === 'string' && (sig as string).length > 0) {
+          kept.push(call);
+        }
+      }
+      if (kept.length === 0) {
+        continue;
+      }
+      const prunedStep: Record<string, ESObject> = { 'calls': kept as ESObject };
+      if (typeof stepRec['index'] === 'number') {
+        prunedStep['index'] = stepRec['index'];
+      }
+      if (typeof stepRec['reasoning_content'] === 'string') {
+        prunedStep['reasoning_content'] = stepRec['reasoning_content'];
+      }
+      pruned.push(prunedStep as ESObject);
+    }
+    if (pruned.length === 0) {
+      return '';
+    }
     let json: string = '';
     try {
-      json = JSON.stringify(raw);
+      json = JSON.stringify(pruned as ESObject);
     } catch (_e) {
       return '';
     }

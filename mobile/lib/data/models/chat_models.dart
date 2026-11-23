@@ -62,6 +62,58 @@ List<Map<String, dynamic>>? parseServerToolCalls(String raw) {
   }
 }
 
+/// 只保留带 signature 的调用（即阅读链接读到的网页），其余（搜索/打开网页）丢弃。
+///
+/// Business Rule: 深度思考搜索的 open_page 没有 signature，也不会进入后续轮次上下文；
+/// 全量留存会把几十 KB 的搜索结构写进会话 JSON 并每轮回传（实测一次深搜 18KB）。
+List<Map<String, dynamic>>? pruneServerToolCalls(List<Object?> raw) {
+  final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
+  for (final Object? step in raw) {
+    if (step is! Map) {
+      continue;
+    }
+    final Object? calls = step['calls'];
+    if (calls is! List) {
+      continue;
+    }
+    final List<Map<String, dynamic>> kept = <Map<String, dynamic>>[];
+    for (final Object? call in calls) {
+      if (call is! Map) {
+        continue;
+      }
+      final Object? signature = call['signature'];
+      if (signature is String && signature.isNotEmpty) {
+        kept.add(Map<String, dynamic>.from(call));
+      }
+    }
+    if (kept.isEmpty) {
+      continue;
+    }
+    final Map<String, dynamic> pruned = <String, dynamic>{'calls': kept};
+    if (step['index'] is num) {
+      pruned['index'] = (step['index'] as num).toInt();
+    }
+    if (step['reasoning_content'] is String) {
+      pruned['reasoning_content'] = step['reasoning_content'];
+    }
+    out.add(pruned);
+  }
+  return out.isEmpty ? null : out;
+}
+
+/// 发送端抓取：末块 server_tool_calls 经裁剪后编码；没有需要回传的内容返回空串。
+String encodeServerToolCalls(Object? raw) {
+  if (raw is! List) {
+    return '';
+  }
+  final List<Map<String, dynamic>>? pruned = pruneServerToolCalls(raw);
+  if (pruned == null) {
+    return '';
+  }
+  final String encoded = jsonEncode(pruned);
+  return encoded.length <= maxServerToolCallsChars ? encoded : '';
+}
+
 /// 存储边界：结构不合法一律按空处理，避免把脏数据回传给接口。
 String _validatedServerToolCalls(Object? raw) {
   if (raw is! String) {

@@ -261,15 +261,9 @@ class ChatService {
       final Object? reasoning = delta['reasoning_content'];
       final _ToolEvent toolEvent = _parseToolEvent(choice['server_tool_event']);
       final List<CitationRange> citations = _parseAnnotations(delta['annotations']);
-      // 完整的 server_tool_calls 只在带 finish_reason 的最后一个 chunk 下发一次。
-      final Object? toolCallsRaw = delta['server_tool_calls'];
-      String toolCallsJson = '';
-      if (toolCallsRaw is List && toolCallsRaw.isNotEmpty) {
-        final String encoded = jsonEncode(toolCallsRaw);
-        if (encoded.length <= maxServerToolCallsChars) {
-          toolCallsJson = encoded;
-        }
-      }
+      // 完整的 server_tool_calls 只在带 finish_reason 的最后一个 chunk 下发一次；
+      // 只保留带 signature 的阅读链接调用，搜索结构不回传也不占存储。
+      final String toolCallsJson = encodeServerToolCalls(delta['server_tool_calls']);
       final List<SearchSource> sources = <SearchSource>[
         ...toolEvent.sources,
       ];
