@@ -2536,6 +2536,8 @@ export struct ChatView {
           mentionedIds: [],
           // 文档附件必须随历史回传，否则追问会丢上下文（服务端靠 file_id 还原文档）。
           attachments: h.attachments,
+          // 阅读链接的 signature 同样必须原样回传，否则下一轮读不到旧网页。
+          serverToolCallsJson: h.serverToolCallsJson,
         };
         history.push(tagged);
         hi += 1;
