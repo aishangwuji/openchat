@@ -109,6 +109,44 @@ class SettingsPage extends StatelessWidget {
       ),
     );
   }
+  /// 所在地编辑：只影响 latest_reminder，留空 = 不告诉模型所在地。
+  Future<void> _editUserLocation(
+    BuildContext context,
+    SettingsController settings,
+    SettingsStrings s,
+  ) async {
+    final TextEditingController input =
+        TextEditingController(text: settings.userLocation);
+    await showDialog<void>(
+      context: context,
+      builder: (BuildContext ctx) => AlertDialog(
+        title: Text(s.t('settings_user_location')),
+        content: TextField(
+          controller: input,
+          autocorrect: false,
+          decoration: InputDecoration(
+            hintText: 'Singapore',
+            helperText: s.t('settings_user_location_desc'),
+            helperMaxLines: 2,
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(),
+            child: Text(s.t('settings_key_clear')),
+          ),
+          FilledButton(
+            onPressed: () {
+              settings.setUserLocation(input.text);
+              Navigator.of(ctx).pop();
+            },
+            child: Text(s.t('settings_key_save')),
+          ),
+        ],
+      ),
+    );
+  }
+
   /// 手动检查更新：Gitee 优先、GitHub 兜底；只提示不强制。
   Future<void> _pickTtsVoice(
     BuildContext context,
@@ -268,6 +306,17 @@ class SettingsPage extends StatelessWidget {
                         title: s.t('settings_image_key'),
                         trailing: Icon(Icons.key_rounded, size: 18, color: c.iconMuted),
                         onTap: () => _editBaizhiKey(context, settings, s, true),
+                      ),
+                      _SettingsRow(
+                        title: s.t('settings_user_location'),
+                        subtitle: s.t('settings_user_location_desc'),
+                        trailing: Text(
+                          settings.userLocation.isEmpty
+                              ? s.t('settings_user_location_empty')
+                              : settings.userLocation,
+                          style: TextStyle(fontSize: 12, color: c.textMuted),
+                        ),
+                        onTap: () => _editUserLocation(context, settings, s),
                       ),
                     ],
                   ),

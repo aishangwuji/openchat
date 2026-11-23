@@ -70,6 +70,14 @@ String _validatedServerToolCalls(Object? raw) {
   return parseServerToolCalls(raw) == null ? '' : raw;
 }
 
+/// 所在地：换行压成空格、去首尾空白，长度封顶 40 字（可留空）。
+/// Business Rule: 这个值会拼进 latest_reminder 的逗号分隔字段，
+/// 换行/超长必须在这里收口，否则请求体可能畸形。
+String sanitizeLocation(String raw) {
+  final String cleaned = raw.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
+  return cleaned.length <= 40 ? cleaned : cleaned.substring(0, 40);
+}
+
 /// 联网搜索来源（持久化，按 url 去重、按出现顺序排列）。
 class SearchSource {
   const SearchSource({

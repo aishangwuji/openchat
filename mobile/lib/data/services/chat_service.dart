@@ -71,6 +71,7 @@ class ChatRequestOptions {
     this.enableSafety = false,
     this.enableTitle = false,
     this.enableReadUrl = false,
+    this.reminder,
   });
 
   final String providerId;
@@ -93,6 +94,8 @@ class ChatRequestOptions {
   final bool enableTitle;
   /// 阅读链接：声明 deepseek_read_url（仅 DeepSeek），模型自动读用户消息里的 URL。
   final bool enableReadUrl;
+  /// 用户元信息（仅 DeepSeek）：每条 user 消息前插 latest_reminder。
+  final ChatReminder? reminder;
 }
 
 /// 联网能力的数据块 kind（其余 kind 是别的工具，解析时忽略）。
@@ -111,6 +114,45 @@ class _ToolEvent {
   final String hint;
   final List<SearchSource> sources;
 }
+
+/// 用户元信息标记（`latest_reminder`）的取值来源。
+class ChatReminder {
+  const ChatReminder({required this.location, required this.language});
+
+  /// 所在地，可留空（官方允许空字段）。
+  final String location;
+
+  /// 'zh-CN' | 'en-US'。
+  final String language;
+}
+
+/// 一天的历史单位：1~2 条线上消息（user 消息可能紧跟一条 latest_reminder）。
+class _WireUnit {
+  const _WireUnit({required this.items, required this.chars});
+
+  final List<Map<String, dynamic>> items;
+  final int chars;
+}
+
+/// DateTime.weekday 是 1(周一)~7(周日)。
+const List<String> _zhWeekdays = <String>[
+  '星期一',
+  '星期二',
+  '星期三',
+  '星期四',
+  '星期五',
+  '星期六',
+  '星期日',
+];
+const List<String> _enWeekdays = <String>[
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+  'Sunday',
+];
 
 /// OpenAI-compatible streaming engine.
 ///
@@ -299,11 +341,15 @@ class ChatService {
   /// Business Rule: assistant history is projected through its stored topic
   /// mask; mismatched masks fail open. `reasoning_content` is replayed for
   /// preserved-thinking providers.
+  ///
+  /// [reminder] 非空时，每条 user 消息前插一条 `latest_reminder`
+  /// （`<date>,<weekday>,<location>,App,<language>`），让模型知道当前日期与所在地。
   static List<Map<String, dynamic>> buildApiMessages(
     List<ChatMessage> messages,
     String? systemPrompt,
-    bool enableFiles,
-  ) {
+    bool enableFiles, {
+    ChatReminder? reminder,
+  }) {
     final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
     if (systemPrompt != null && systemPrompt.trim().isNotEmpty) {
       out.add(<String, dynamic>{
@@ -311,7 +357,9 @@ class ChatService {
         'content': systemPrompt.trim(),
       });
     }
-    final List<Map<String, dynamic>> candidates = <Map<String, dynamic>>[];
+    // 一条历史单位 = 1~2 条线上消息（user 消息可能带一条 latest_reminder），
+    // 截断按单位做，避免把 reminder 与它所属的 user 消息拆开（协议要求紧邻）。
+    final List<_WireUnit> candidates = <_WireUnit>[];
     for (final ChatMessage message in messages) {
       if (!message.isUser && !message.isAssistant) {
         continue;
@@ -354,29 +402,58 @@ class ChatService {
       if (serverToolCalls != null) {
         item['server_tool_calls'] = serverToolCalls;
       }
-      item['_chars'] = chars;
-      candidates.add(item);
+      final List<Map<String, dynamic>> items = <Map<String, dynamic>>[];
+      if (reminder != null && message.isUser) {
+        items.add(_reminderEntry(message, reminder));
+        chars += _reminderChars;
+      }
+      items.add(item);
+      candidates.add(_WireUnit(items: items, chars: chars));
     }
 
     final int start = candidates.length > _maxHistoryMessages
         ? candidates.length - _maxHistoryMessages
         : 0;
-    final List<Map<String, dynamic>> kept = <Map<String, dynamic>>[];
+    final List<_WireUnit> kept = <_WireUnit>[];
     int used = 0;
     for (int i = candidates.length - 1; i >= start; i--) {
-      final Map<String, dynamic> c = candidates[i];
-      final int total = (c['_chars'] as int?) ?? 0;
-      if (kept.isNotEmpty && used + total > _maxHistoryChars) {
+      final _WireUnit unit = candidates[i];
+      if (kept.isNotEmpty && used + unit.chars > _maxHistoryChars) {
         break;
       }
-      kept.insert(0, c);
-      used += total;
+      kept.insert(0, unit);
+      used += unit.chars;
     }
-    for (final Map<String, dynamic> c in kept) {
-      c.remove('_chars');
+    for (final _WireUnit unit in kept) {
+      out.addAll(unit.items);
     }
-    out.addAll(kept);
     return out;
+  }
+
+  /// latest_reminder 的固定开销（日期/星期/语言），只用于本地字符预算。
+  static const int _reminderChars = 32;
+
+  /// `<date>,<weekday>,<location>,App,<language>`（官方《用户元信息标记》）。
+  /// Business Rule: 日期取该条消息自己的时间，回放历史时每天仍是当天的日期；
+  /// 位于任意非 DeepSeek 服务商会被 400，调用方只在 DeepSeek 下传 reminder。
+  static Map<String, dynamic> _reminderEntry(
+    ChatMessage message,
+    ChatReminder reminder,
+  ) {
+    final DateTime date =
+        DateTime.fromMillisecondsSinceEpoch(message.createdAt);
+    final String iso = '${date.year.toString().padLeft(4, '0')}-'
+        '${date.month.toString().padLeft(2, '0')}-'
+        '${date.day.toString().padLeft(2, '0')}';
+    final bool isEnglish = reminder.language == 'en-US';
+    final String weekday =
+        isEnglish ? _enWeekdays[date.weekday - 1] : _zhWeekdays[date.weekday - 1];
+    final String language = isEnglish ? 'English' : '中文';
+    final String location = sanitizeLocation(reminder.location);
+    return <String, dynamic>{
+      'role': 'latest_reminder',
+      'content': '$iso,$weekday,$location,App,$language',
+    };
   }
   static Map<String, dynamic> _buildPayload(
     ChatRequestOptions options,
@@ -389,6 +466,7 @@ class ChatService {
         options.messages,
         options.systemPrompt,
         options.enableFiles && options.providerId == 'deepseek',
+        reminder: options.reminder,
       ),
       'stream': isStream,
     };

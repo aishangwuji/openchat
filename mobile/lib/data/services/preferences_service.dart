@@ -28,6 +28,8 @@ class PreferencesService {
   static const String keyFeatureReadUrl = 'feature_read_url';
   static const String keyWebSearchProvider = 'web_search_provider';
   static const String keyTtsVoice = 'tts_voice';
+  /// 用户所在地（注入 latest_reminder，可留空）。
+  static const String keyUserLocation = 'user_location';
 
   static const String storeCharacters = 'saved_characters';
   static const String storeIdentities = 'saved_identities';

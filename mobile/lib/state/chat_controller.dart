@@ -904,6 +904,13 @@ class ChatController extends ChangeNotifier {
         enableTitle: titleEnabled,
         // 阅读链接：让服务端抓取用户消息里的 URL（与联网搜索独立，是否读由模型判断）。
         enableReadUrl: _settings.featureReadUrl,
+        // 用户元信息：日期/语言/所在地（latest_reminder 仅 DeepSeek 支持）。
+        reminder: _currentProviderId == 'deepseek'
+            ? ChatReminder(
+                location: _settings.userLocation,
+                language: _settings.language,
+              )
+            : null,
       ),
     );
 

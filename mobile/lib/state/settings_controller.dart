@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../data/models/chat_models.dart';
 import '../data/services/key_store.dart';
 import '../core/theme/app_skins.dart';
 import '../data/services/preferences_service.dart';
@@ -46,6 +47,8 @@ class SettingsController extends ChangeNotifier {
   bool _featureReadUrl = true;
   String _webSearchProvider = webSearchProviderDeepseek;
   String _ttsVoice = 'stella';
+  /// 用户所在地：随 latest_reminder 告诉模型，可留空。
+  String _userLocation = '';
 
   String get appearance => _appearance;
   String get skinId => _skinId;
@@ -66,6 +69,7 @@ class SettingsController extends ChangeNotifier {
   bool get featureReadUrl => _featureReadUrl;
   String get webSearchProvider => _webSearchProvider;
   String get ttsVoice => _ttsVoice;
+  String get userLocation => _userLocation;
 
   ThemeMode get themeMode {
     switch (_appearance) {
@@ -119,6 +123,7 @@ class SettingsController extends ChangeNotifier {
                 webSearchProviderBaizhi
             ? webSearchProviderBaizhi
             : webSearchProviderDeepseek;
+    c._userLocation = prefs.getString(PreferencesService.keyUserLocation);
     return c;
   }
 
@@ -251,5 +256,12 @@ class SettingsController extends ChangeNotifier {
     _ttsVoice = voice == 'tide' ? 'tide' : 'stella';
     notifyListeners();
     await _prefs.setString(PreferencesService.keyTtsVoice, _ttsVoice);
+  }
+
+  /// 所在地：只用于 latest_reminder，允许留空；换行/超长在 sanitizeLocation 收口。
+  Future<void> setUserLocation(String location) async {
+    _userLocation = sanitizeLocation(location);
+    notifyListeners();
+    await _prefs.setString(PreferencesService.keyUserLocation, _userLocation);
   }
 }
