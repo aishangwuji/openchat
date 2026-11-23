@@ -9,6 +9,7 @@ import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import { CharacterCard, ChatMessage, ChatSession, CitationRange, MessageAttachment, MessageRole, SearchSource } from '../models/ChatModels';
+import { TOOL_CALLS_MAX_CHARS } from './WebSearchService';
 
 const DOMAIN = 0x0000;
 const TAG = 'ChatStorageService';
@@ -303,6 +304,12 @@ export class ChatStorageService {
       imagePrompt: typeof rec['imagePrompt'] === 'string' ? rec['imagePrompt'] as string : undefined,
       imageState: rec['imageState'] === 'done' || rec['imageState'] === 'failed'
         ? rec['imageState'] as 'done' | 'failed' : undefined,
+      // 服务端工具调用原文（含阅读链接 signature）：只做类型/长度初筛，
+      // 结构校验在回传前（WebSearchService.parseServerToolCalls）。
+      serverToolCallsJson: typeof rec['serverToolCallsJson'] === 'string' &&
+        (rec['serverToolCallsJson'] as string).length > 0 &&
+        (rec['serverToolCallsJson'] as string).length <= TOOL_CALLS_MAX_CHARS
+        ? rec['serverToolCallsJson'] as string : undefined,
     };
     const childRaw: ESObject = rec['childIds'];
     if (Array.isArray(childRaw)) {

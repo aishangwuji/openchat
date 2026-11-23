@@ -42,6 +42,7 @@ export const KEY_FEATURE_ASR = 'feature_asr'; // boolean，默认 true
 export const KEY_FEATURE_TTS = 'feature_tts'; // boolean，默认 true
 export const KEY_FEATURE_IMAGE = 'feature_image'; // boolean，默认 true
 export const KEY_FEATURE_SAFETY = 'feature_safety'; // boolean，默认 false
+export const KEY_FEATURE_READ_URL = 'feature_read_url'; // boolean，默认 true
 export const DEFAULT_TTS_VOICE = 'stella';
 /**
  * 解析后的实际深色态（system 时跟随系统），供非资源侧（Markdown 主题）读取。
@@ -365,6 +366,7 @@ export class SettingsService {
     await SettingsService.loadFeature(KEY_FEATURE_TTS, true);
     await SettingsService.loadFeature(KEY_FEATURE_IMAGE, true);
     await SettingsService.loadFeature(KEY_FEATURE_SAFETY, false);
+    await SettingsService.loadFeature(KEY_FEATURE_READ_URL, true);
     const prefs: preferences.Preferences | undefined = SettingsService.prefsInstance;
     if (prefs === undefined) {
       return;

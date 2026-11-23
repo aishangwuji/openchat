@@ -27,7 +27,7 @@ import { BaizhiWebSearchService } from '../services/BaizhiWebSearchService';
 import { TtsCallbacks, TtsService } from '../services/TtsService';
 import {
   SettingsService, KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS,
-  KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY, KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_BAIZHI,
+  KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY, KEY_FEATURE_READ_URL, KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_BAIZHI,
   KEY_BAIZHI_IMAGE_READY
 } from '../services/SettingsService';
 import { FileUploadService, UploadedFile } from '../services/FileUploadService';
@@ -130,6 +130,8 @@ export struct ChatView {
   @StorageProp(KEY_FEATURE_TTS) featureTts: boolean = true;
   @StorageProp(KEY_FEATURE_IMAGE) featureImage: boolean = true;
   @StorageProp(KEY_FEATURE_SAFETY) featureSafety: boolean = false;
+  /** 阅读链接开关：声明 deepseek_read_url，让模型读用户消息里的 URL。 */
+  @StorageProp(KEY_FEATURE_READ_URL) featureReadUrl: boolean = true;
   @StorageProp(KEY_WEB_SEARCH_PROVIDER) webSearchProvider: string = 'deepseek';
   /** 展开来源明细的消息 id（'' = 全部收起）；点「N 个网页」胶囊切换。 */
   @State expandedSourceMsgId: string = '';
@@ -2615,6 +2617,10 @@ export struct ChatView {
         onToolCalls: (calls: ToolCallRequest[]) => {
           roundToolCalls = calls;
         },
+        onServerToolCalls: (json: string) => {
+          // 阅读链接：末块原样留存，下一轮随历史回传（signature 在里面）。
+          assistantMsg.serverToolCallsJson = json;
+        },
         onRefusal: (reason: string) => {
           // 官方要求：拒答时删除已展示的回答，改为拒答文案。
           assistantMsg.content = '';
@@ -2705,6 +2711,8 @@ export struct ChatView {
           this.currentProviderId === 'deepseek' && this.wantsImageWithContext(parentMsg),
         // 内容安全：官方基础风控（可关）。
         enableSafety: this.featureSafety,
+        // 阅读链接：服务端抓用户消息里的 URL（是否读由模型判断）。
+        enableReadUrl: this.featureReadUrl,
         // 文件解析开关：关闭后历史附件不再以 content 块回传。
         enableFiles: this.featureFiles,
         // 会话标题：服务端扩展字段（仅 DeepSeek），首轮才开启。

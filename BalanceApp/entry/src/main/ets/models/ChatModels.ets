@@ -101,6 +101,12 @@ export interface ChatMessage {
   citations?: CitationRange[];
   /** 用户消息携带的文档（DeepSeek Files API）；持久化，历史轮次继续以 file_id 引用。 */
   attachments?: MessageAttachment[];
+  /**
+   * 服务端工具调用原文（Chat Completions 末块 delta.server_tool_calls 的 JSON）。
+   * Business Rule: 阅读链接的网页正文加密在 signature 里，多轮必须原样回传整段；
+   *   存原文而不是重拼结构，回传前由 WebSearchService.parseServerToolCalls 校验。
+   */
+  serverToolCallsJson?: string;
 }
 
 export interface CharacterCard {

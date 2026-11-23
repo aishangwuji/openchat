@@ -19,6 +19,7 @@ import {
   SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_APP_DARK, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
   KEY_APP_LOCK_ENABLED, KEY_TTS_VOICE, DEFAULT_TTS_VOICE,
   KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS, KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY,
+  KEY_FEATURE_READ_URL,
   KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_DEEPSEEK, WEB_SEARCH_PROVIDER_BAIZHI,
   KEY_BAIZHI_IMAGE_READY, KEY_BAIZHI_WEB_READY
 } from '../services/SettingsService';
@@ -94,6 +95,7 @@ struct Settings {
   @StorageProp(KEY_FEATURE_TTS) featureTts: boolean = true;
   @StorageProp(KEY_FEATURE_IMAGE) featureImage: boolean = true;
   @StorageProp(KEY_FEATURE_SAFETY) featureSafety: boolean = false;
+  @StorageProp(KEY_FEATURE_READ_URL) featureReadUrl: boolean = true;
   @State showAppLockSheet: boolean = false;
 
   // 字体大小滑块临时滑动值 (1 ~ 7)
@@ -450,6 +452,9 @@ struct Settings {
               }, false)
               this.ToggleRow(this.t('settings_feature_files'), this.featureFiles, (v: boolean) => {
                 this.toggleFeature(KEY_FEATURE_FILES, v);
+              }, false)
+              this.ToggleRow(this.t('settings_feature_read_url'), this.featureReadUrl, (v: boolean) => {
+                this.toggleFeature(KEY_FEATURE_READ_URL, v);
               }, false)
               this.ToggleRow(this.t('settings_feature_asr'), this.featureAsr, (v: boolean) => {
                 this.toggleFeature(KEY_FEATURE_ASR, v);

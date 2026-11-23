@@ -22,6 +22,12 @@ const MAX_TITLE_CHARS = 300;
 const MAX_SNIPPET_CHARS = 500;
 /** 过程提示里关键词的展示长度上限（超出截断加省略号，避免顶掉气泡宽度）。 */
 const MAX_QUERY_DISPLAY_CHARS = 24;
+/**
+ * 单条回复留存的服务端工具调用原文上限（字符）。
+ * Business Rule: 阅读链接的网页正文加密在 signature 里，体积可能有几十 KB；
+ *   超限只丢这一条的原文（多轮少了这页上下文），避免整份会话 JSON 撑爆本地存储。
+ */
+export const TOOL_CALLS_MAX_CHARS = 200000;
 
 export type SearchPhase = 'started' | 'completed';
 
@@ -54,6 +60,17 @@ export class WebSearchService {
   }
 
   /**
+   * 阅读链接工具声明（deepseek_read_url）。
+   * Business Rule: 开思考且同时声明了搜索时，服务端走深度思考搜索、本轮不单独读链接；
+   *   只有关思考或未声明搜索时才会读用户消息里的 URL（官方《阅读链接》）。
+   */
+  public static buildReadUrlDeclaration(): Record<string, string>[] {
+    const item: Record<string, string> = { 'type': 'deepseek_read_url' };
+    const tools: Record<string, string>[] = [item];
+    return tools;
+  }
+
+  /**
    * 解析 server_tool_event；非本次搜索能力的调用（如 step_reasoning_done）返回 undefined。
    * Reason: 事件挂在 choice 上与 delta 并列、一次 chunk 最多一个，调用方按到达顺序处理即可。
    */
@@ -81,7 +98,8 @@ export class WebSearchService {
     // Business Rule: 实测 call_started 的 call 带 kind，call_completed 的 call 只有
     //   index/id/status/sources（不带 kind），故 kind 缺失一律放行，只有明确的非搜索能力才丢弃。
     if (kind.length > 0 && kind !== 'search' && kind !== 'deep_search' &&
-      kind !== 'image_search' && kind !== 'deep_image_search') {
+      kind !== 'read_link' && kind !== 'image_search' &&
+      kind !== 'deep_image_search') {
       return undefined;
     }
 
@@ -108,6 +126,27 @@ export class WebSearchService {
     }
 
     const sources: SearchSource[] = WebSearchService.parseSourceArray(callRec['sources']);
+    // 打开网页 / 阅读链接的结果：call.page 带 url/title/published_at（正文在 signature 里）。
+    const pageVal: ESObject = callRec['page'];
+    if (pageVal !== null && typeof pageVal === 'object') {
+      const pageRec: Record<string, ESObject> = pageVal as Record<string, ESObject>;
+      const pageUrlVal: ESObject = pageRec['url'];
+      if (typeof pageUrlVal === 'string') {
+        const pageUrl: string = (pageUrlVal as string).trim();
+        if (WebSearchService.isHttpUrl(pageUrl)) {
+          const pageTitle: string = WebSearchService.stringField(pageRec, 'title', MAX_TITLE_CHARS);
+          const pageSource: SearchSource = {
+            url: pageUrl,
+            title: pageTitle.length > 0 ? pageTitle : pageUrl
+          };
+          const pagePublished: string = WebSearchService.stringField(pageRec, 'published_at', 64);
+          if (pagePublished.length > 0) {
+            pageSource.publishedAt = pagePublished;
+          }
+          sources.push(pageSource);
+        }
+      }
+    }
     const statusVal: ESObject = callRec['status'];
     const failed: boolean = typeStr === 'call_completed' && statusVal === 'failed';
 
@@ -228,6 +267,9 @@ export class WebSearchService {
    *   用户会误以为卡在搜索；这里按动作给出对应文案。
    */
   public static startedLabel(progress: SearchProgress): string {
+    if (progress.action === 'read_link') {
+      return '正在阅读链接…';
+    }
     if (progress.action === 'open_page') {
       return '正在阅读网页…';
     }
@@ -255,6 +297,77 @@ export class WebSearchService {
     }
     const host: string = WebSearchService.hostOf(src.url);
     return host.length > 0 ? host : src.url;
+  }
+
+  /**
+   * 末块 delta.server_tool_calls → 本地留存原文；结构不合法或超限返回 ''。
+   * Business Rule: 阅读链接的网页正文加密在 signature 里，多轮必须原样回传整段，
+   *   所以不重拼结构、只做校验后存原文；校验不过按「没有工具调用」处理，请求照发。
+   */
+  public static serializeServerToolCalls(raw: ESObject): string {
+    if (!Array.isArray(raw)) {
+      return '';
+    }
+    let json: string = '';
+    try {
+      json = JSON.stringify(raw);
+    } catch (_e) {
+      return '';
+    }
+    if (json.length === 0 || json.length > TOOL_CALLS_MAX_CHARS) {
+      return '';
+    }
+    return WebSearchService.parseServerToolCalls(json) !== undefined ? json : '';
+  }
+
+  /** 校验并解析留存的工具调用原文（跨边界数据，不可信）；结构不符返回 undefined。 */
+  public static parseServerToolCalls(rawJson: string): ESObject[] | undefined {
+    if (rawJson.length === 0 || rawJson.length > TOOL_CALLS_MAX_CHARS) {
+      return undefined;
+    }
+    let parsed: ESObject;
+    try {
+      parsed = JSON.parse(rawJson) as ESObject;
+    } catch (_e) {
+      return undefined;
+    }
+    if (!Array.isArray(parsed)) {
+      return undefined;
+    }
+    const steps: ESObject[] = parsed as ESObject[];
+    const out: ESObject[] = [];
+    let i: number = 0;
+    while (i < steps.length) {
+      const step: ESObject = steps[i];
+      i += 1;
+      if (step === null || typeof step !== 'object' || Array.isArray(step)) {
+        return undefined;
+      }
+      const stepRec: Record<string, ESObject> = step as Record<string, ESObject>;
+      const callsVal: ESObject = stepRec['calls'];
+      if (!Array.isArray(callsVal)) {
+        return undefined;
+      }
+      const calls: ESObject[] = callsVal as ESObject[];
+      let j: number = 0;
+      while (j < calls.length) {
+        const call: ESObject = calls[j];
+        j += 1;
+        if (call === null || typeof call !== 'object' || Array.isArray(call)) {
+          return undefined;
+        }
+        const callRec: Record<string, ESObject> = call as Record<string, ESObject>;
+        if (typeof callRec['kind'] !== 'string') {
+          return undefined;
+        }
+        const action: ESObject = callRec['action'];
+        if (action === null || typeof action !== 'object' || Array.isArray(action)) {
+          return undefined;
+        }
+      }
+      out.push(step);
+    }
+    return out.length > 0 ? out : undefined;
   }
 
   private static parseSourceArray(raw: ESObject): SearchSource[] {

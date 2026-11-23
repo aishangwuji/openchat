@@ -67,6 +67,12 @@ export interface StreamCallbacks {  onToken: (token: string, reasoningChunk?: st
   onToolCalls?: (calls: ToolCallRequest[]) => void;
   /** 内容安全拒答：finish_reason=content_filter 或 delta.refusal 时回调。 */
   onRefusal?: (reason: string) => void;
+  /**
+   * 服务端工具调用原文（末块 delta.server_tool_calls）。
+   * Business Rule: 阅读链接的网页正文加密在 signature 里，调用方必须原样留存并随历史回传，
+   *   下一轮模型才能继续引用该网页。
+   */
+  onServerToolCalls?: (json: string) => void;
 }
 
 export interface ChatRequestOptions {
@@ -99,6 +105,12 @@ export interface ChatRequestOptions {
   enableSafety?: boolean;
   /** 文件/图片附件解析开关（关闭时历史里的附件不再以 content 块回传）。 */
   enableFiles?: boolean;
+  /**
+   * 阅读链接开关：声明 deepseek_read_url，模型自动读用户消息里的 URL。
+   * Business Rule: 开思考且同时开了联网搜索时，服务端走深度思考搜索、本轮不单独读链接
+   *   （官方语义），请求照常成功，只是不产生 read_link 调用。
+   */
+  enableReadUrl?: boolean;
 }
 
 export class ChatService {
@@ -225,6 +237,14 @@ export class ChatService {
                       const titleVal: ESObject = deltaRec['title'];
                       if (typeof titleVal === 'string' && (titleVal as string).trim().length > 0) {
                         callbacks.onTitle((titleVal as string).trim());
+                      }
+                    }
+                    // 服务端工具调用（含阅读链接 signature）同样只在末块一次性下发，原样留存。
+                    if (callbacks.onServerToolCalls !== undefined) {
+                      const stcJson: string =
+                        WebSearchService.serializeServerToolCalls(deltaRec['server_tool_calls']);
+                      if (stcJson.length > 0) {
+                        callbacks.onServerToolCalls(stcJson);
                       }
                     }
                   }
@@ -393,22 +413,32 @@ export class ChatService {
       // 纯附件消息（只发文件不打字）也必须保留，否则追问会丢文档。
       const hasAtts: boolean = m.role === 'user' && enableFiles &&
         m.attachments !== undefined && m.attachments.length > 0;
+      // 阅读链接：末块留存的 server_tool_calls 必须原样回传（signature 在里面），
+      //   校验不过就按没有处理，请求照发。
+      const replayedToolCalls: ESObject[] | undefined =
+        m.role === 'assistant' && m.serverToolCallsJson !== undefined &&
+        m.serverToolCallsJson.length > 0
+          ? WebSearchService.parseServerToolCalls(m.serverToolCallsJson) : undefined;
       // Business Rule: 助手「空回合」（模型只调了客户端工具、没吐正文）不能原样回传——
       //   一个 content 为空、只有 reasoning 的 assistant 回合会让模型以为上一问还没答完，
       //   于是每轮都重复执行上一条生图指令（2026-11-20 实测：「我手里这是什么」「搜日照景点」
       //   都被它当成还要再生一张头像）。带图的旧回合用一句占位结算，其它空回合直接丢弃。
+      //   唯一例外是带阅读链接的回合：正文可能为空，但 signature 必须回传。
       if (m.role === 'assistant' && replayContent.length === 0) {
         const hasImages: boolean = m.imageUrls !== undefined && m.imageUrls.length > 0;
-        if (!hasImages) {
-          continue;
+        if (replayedToolCalls === undefined) {
+          if (!hasImages) {
+            continue;
+          }
+          replayContent = '（已为你生成图片）';
         }
-        replayContent = '（已为你生成图片）';
       }
       // Preserved Thinking 只对 Kimi / 小米 MiMo 回传。DeepSeek 各模型若回传 reasoning_content，
       //   上一轮的「计划」会被带进新一轮（实测导致答题串味），必须丢弃。
       const hasReasoning: boolean = preserveThinking && m.reasoningContent !== undefined &&
         m.reasoningContent.length > 0;
-      if (replayContent.length === 0 && !hasReasoning && !hasAtts) {
+      if (replayContent.length === 0 && !hasReasoning && !hasAtts &&
+        replayedToolCalls === undefined) {
         continue;
       }
       const item: Record<string, ESObject> = {
@@ -441,6 +471,9 @@ export class ChatService {
       if (hasReasoning && m.reasoningContent !== undefined && m.reasoningContent.length > 0) {
         item['reasoning_content'] = m.reasoningContent;
         chars += m.reasoningContent.length;
+      }
+      if (replayedToolCalls !== undefined) {
+        item['server_tool_calls'] = replayedToolCalls as ESObject;
       }
       const entry: ApiMessageEntry = { item: item, chars: chars };
       candidates.push(entry);
@@ -584,6 +617,16 @@ export class ChatService {
         wi += 1;
       }
     }
+    // 阅读链接：与联网搜索可同时声明；服务端按「开思考 + 声明搜索」走深度思考搜索，
+    // 只有关思考或未声明搜索时才读用户消息里的 URL。
+    if (options.enableReadUrl === true && WebSearchService.isSupported(options.providerId)) {
+      const readTools: Record<string, string>[] = WebSearchService.buildReadUrlDeclaration();
+      let ri: number = 0;
+      while (ri < readTools.length) {
+        tools.push(readTools[ri] as ESObject);
+        ri += 1;
+      }
+    }
     // 生图：客户端函数工具，由模型决定何时调用，客户端执行百智云任务。
     if (options.enableImageTool === true && options.providerId === 'deepseek') {
       tools.push(ChatService.buildImageToolDeclaration() as ESObject);
@@ -592,8 +635,9 @@ export class ChatService {
       payloadObj['tools'] = tools as ESObject;
     }
     // 诊断用：联网搜索「不生效」时先看这一行，确认 tools 是否真的进了请求体。
-    hilog.info(DOMAIN, TAG, 'request tools=%{public}d webSearch=%{public}s imageTool=%{public}s model=%{public}s',
+    hilog.info(DOMAIN, TAG, 'request tools=%{public}d webSearch=%{public}s readUrl=%{public}s imageTool=%{public}s model=%{public}s',
       tools.length, String(options.enableWebSearch === true),
+      String(options.enableReadUrl === true),
       String(options.enableImageTool === true), options.model);
     // 内容安全：官方 safety_check（high=基础风控，low 与不传等价）。
     if (options.enableSafety === true && options.providerId === 'deepseek') {
