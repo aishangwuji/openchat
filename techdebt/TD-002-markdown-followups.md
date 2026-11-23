@@ -12,8 +12,9 @@
      `start_index`/`end_index`（Unicode 码点）随消息持久化，`MarkdownService.injectCitations`
      换算成 UTF-16 下标后在正文插 `[N](#cite-N)`（跳过围栏代码块、从后往前插）；
      来源为「图标胶囊 + N 个网页」，点开展开明细。剩余一项：
-     - **阅读链接**：`deepseek_read_url` 的网页正文放在 `signature` 里，多轮要原样回传整条
-       assistant 消息的 `server_tool_calls` 才能复现；当前未声明该工具、也未回传。
+     - ~~**阅读链接**：`deepseek_read_url`~~ 已落地（2026-11-23）：末块
+       `delta.server_tool_calls`（含 `signature`）以原文存 `ChatMessage.serverToolCallsJson`，
+       `buildApiMessages` 原样回传；只读了链接没吐正文的回合也保留。真实接口回归见 TD-007。
   3. Worker 解析实测：库内 parse 为异步合并，解析线程归属未验证；超长消息先观察是否卡顿。
   4. 表格横滚：库采用列宽自适应（`cellMaxWidth` 主题可调），无溢出故未做外层横滚；若出现宽表溢出再议。
   5. LaTeX：库鸿蒙端明确未支持（Known Issues），公式需求如提出需另选方案。

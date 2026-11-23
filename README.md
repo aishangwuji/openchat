@@ -15,13 +15,17 @@ Gitee 为主干（`origin`），GitHub 由 Actions 自动镜像（`.github/workf
 > **移动端说明**：mobile/（Flutter，Android/iOS）已按 2026-11-20 追平鸿蒙端主要能力：
 > 应用身份（com.example.openchat）、检查更新、设置「工具」分组与开关、联网搜索
 > （DeepSeek 服务端 + 百智云）、引用角标/来源胶囊、文件解析与图片视觉、语音输入/朗读、
-> 生图、内容安全；两端本地存储独立（Key 需各自配置）。仍未对齐：蓝白配色之外的聊天版式微调、
+> 生图、内容安全；2026-11-23 补齐服务端会话标题、阅读链接与 `latest_reminder`。
+> 两端本地存储独立（Key 需各自配置）。仍未对齐：蓝白配色之外的聊天版式微调、
 > 分享/导出等长尾差异，见 [techdebt/TD-006](techdebt/TD-006-mobile-web-search-parity.md)。
 ## 特性
 
 - **资产**：密钥只存本机 Preferences；余额自动刷新，失败保留上次结果。
 - **对话**：多服务商 / 多模型、流式输出与思考过程、Markdown + 代码高亮、消息分支（编辑/重新生成）、会话自动标题。
-- **联网搜索**：DeepSeek 服务端 `web_search` 工具，SSE 解析来源，正文注入引用角标，来源可点开。
+- **联网搜索**：DeepSeek 服务端 `deepseek_web_search` 工具，SSE 解析来源，正文注入引用角标，来源可点开。
+- **阅读链接**：`deepseek_read_url` 让模型读用户消息里的 URL；网页正文加密在 `signature` 里，
+  随消息持久化并在后续轮次原样回传。
+- **用户元信息**：每轮注入 `latest_reminder`（日期 / 星期 / 所在地 / 语言），模型知道「今天几号」。
 - **文件与图片**：Files API 上传（`user_data` / `text_recognition` 分流），图片走视觉通道，附件随消息持久化。
 - **语音**：按住说话录音 → `/v1/tools/asr` 转写回填；回答可朗读（`/v1/tools/tts`，本地音频缓存）。
 - **外观**：浅色 / 深色 / 跟随系统，7 档字号，中英双语。

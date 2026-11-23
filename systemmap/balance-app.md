@@ -31,14 +31,40 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: fce456e
-last_verified: 2026-11-20
+last_verified_commit: 3f9c68a
+last_verified: 2026-11-23
 ---
 
 > 前瞻设计：多角色群聊（@ + 记忆隔离）详见 `docs/group-chat-design.md`（原设计中的 Jev 路由已随
 > 上下文净化移除，见下方「已移除」小节）。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
+
+## 阅读链接与用户元信息（2026-11-23，构建通过）
+
+- **阅读链接 `deepseek_read_url`**：`ChatRequestOptions.enableReadUrl` 为真、服务商是 DeepSeek 时下发
+  `tools:[{type:'deepseek_read_url'}]`；设置>工具「阅读链接」开关默认开（`feature_read_url`）。
+  官方语义：**开思考且同时声明了搜索时走深度思考搜索、本轮不读链接**；只有关思考或未声明搜索才读
+  最后一条用户消息里的 URL（最多前 10 个）。
+- 解析 `services/WebSearchService.ets`：`parseToolEvent` 放行 `kind=read_link`，并把 `call.page`
+  （url/title/published_at）转成来源卡片；`startedLabel` 补「正在阅读链接…」。
+- **回传是关键**：网页正文不在块里，加密在 `web_fetch_tool_result.signature`（Chat Completions 是
+  `call.signature`）；完整 `server_tool_calls` 只在带 `finish_reason` 的末块 `delta.server_tool_calls`
+  一次性下发。`ChatService` 用 `serializeServerToolCalls` 校验（结构 + 200KB/条上限）后以原文存
+  `ChatMessage.serverToolCallsJson`（持久化），`buildApiMessages` 原样放回 assistant 消息的
+  `server_tool_calls`。**只读了链接、没吐正文的回合也必须保留**，否则 signature 会随空回合一起丢掉。
+- 边界：`tools` 里的联网工具不能与生图等客户端工具以外的服务端工具混用、跨服务商声明会 400，故只对
+  DeepSeek 生效；带工具块的历史发给未声明工具的请求是合法的（官方允许）。
+- **用户元信息 `latest_reminder`**：`ChatService.buildApiMessages` 给**每条 user 消息前**插一条
+  `{role:'latest_reminder', content:'<date>,<weekday>,<location>,App,<language>'}`。
+  日期取该条消息 `createdAt`（回放历史时每轮仍是当天），星期随界面语言（星期一 / Monday），
+  `language` 用语言自称（中文 / English），`location` 可留空、可含逗号。
+  只对 DeepSeek 注入（其他服务商不认该 role，会 400）。所在地在设置>工具里填，
+  `sanitizeLocation`（`models/ChatModels.ets`）收口换行与 40 字上限。
+- 历史截断改为按「历史单位」做：1 条 user + 1 条 reminder 视为一个单位，条数/字符预算都不会把
+  reminder 和它所属的 user 消息拆开（协议要求紧邻）。
+- 验证：`hvigor assembleHap` 构建通过。**真实 Key 的联网/阅读联调未做**（本机无 Key 环境），
+  回归清单见 `techdebt/TD-007-read-url-reminder-live-check.md`。
 
 ## 主题体系：多皮肤运行时切换（2026-11-20，构建通过）
 
@@ -271,9 +297,9 @@ last_verified: 2026-11-20
     逐帧刷新；正文出现后仍为 `C`，不破坏「MarkdownBody 只挂载一次」的稳定实例约定。
 - 持久化 `services/ChatStorageService.ets`：`normalizeSources` 校验 http/https、按 url 去重、
   上限 24；过程态字段不落盘（历史里不会残留「搜索中」）。
-- 未做：`deepseek_read_url`（阅读用户发的链接）与内联引用角标（annotations 的
-  start_index/end_index 是 Unicode 码点，需正文插标）见 `techdebt/TD-002`；
-  移动端对齐见 `techdebt/TD-006`；旧模型名会话迁移见 `techdebt/TD-005`。
+- 未做：内联引用角标（annotations 的 start_index/end_index 是 Unicode 码点，需正文插标）见
+  `techdebt/TD-002`；旧模型名会话迁移见 `techdebt/TD-005`。
+  `deepseek_read_url` 已于 2026-11-23 补齐，见上方「阅读链接与用户元信息」。
 - 顺带修正 `services/ModelService.ets` 兜底模型名：deepseek-chat / deepseek-reasoner 已于
   2026-07-24 下线，改为 deepseek-flash / deepseek-v4-pro（实测两者都支持联网工具）。
 - 验证：无 mock。用本机 Key 实跑 `deepseek-flash` 普通搜索与深度思考搜索，把真实 SSE 按同一

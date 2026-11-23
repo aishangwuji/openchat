@@ -90,15 +90,16 @@
 - 架构：`lib/data`（模型/服务/注册表）→ `lib/state`（ChangeNotifier）→
   `lib/ui`（页面/组件）。颜色只走 `core/theme/app_colors.dart` 语义 token。
 - 能力与服务位置（追平鸿蒙端）：
-  - 设置「工具」：服务商（DeepSeek/百智云）、两套百智云 Key、6 个功能开关；
+  - 设置「工具」：服务商（DeepSeek/百智云）、两套百智云 Key、7 个功能开关、所在地；
   - `services/update_service.dart`：Gitee→GitHub 双源检查更新；
-  - `services/chat_service.dart`：`deepseek_web_search`、`generate_image` 函数工具、
-    `safety_check`、`delta.annotations` 引用、`delta.tool_calls` 分片；
+  - `services/chat_service.dart`：`deepseek_web_search`、`deepseek_read_url`、
+    `generate_image` 函数工具、`safety_check`、`title.enabled`、`delta.annotations` 引用、
+    `delta.server_tool_calls`（含阅读链接 signature）原样留存与回传、`latest_reminder` 注入；
   - `services/baizhi_web_search_service.dart`：百智云客户端检索 + 上下文注入；
   - `services/file_upload_service.dart`：Files API 上传（图片走 user_data 视觉）；
   - `services/asr_service.dart` / `services/tts_service.dart`：语音输入与朗读（含缓存）；
   - `services/image_gen_service.dart`：百智云生图任务创建/轮询；
-  - 存储键：Preferences `feature_*` / `web_search_provider` / `tts_voice`，
+  - 存储键：Preferences `feature_*` / `web_search_provider` / `tts_voice` / `user_location`，
     KeyStore `key_baizhi_web` / `key_baizhi_image`。
 - 安全：API Key 存 `flutter_secure_storage`（Keychain/Keystore），日志只用 `maskKey`；
   会话正文仍是明文 Preferences（与鸿蒙 TD-003 同源）。

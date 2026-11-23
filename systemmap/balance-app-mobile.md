@@ -44,8 +44,8 @@ covered_paths:
   - mobile/test/balance_service_test.dart
   - mobile/test/citation_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 9ca04c8
-last_verified: 2026-11-20
+last_verified_commit: 3f9c68a
+last_verified: 2026-11-23
 ---
 
 # BalanceApp Mobile（Flutter Android/iOS）systemmap
@@ -239,3 +239,27 @@ last_verified: 2026-11-20
   `settings.skin.light` / `.dark`，因此「明暗」跟着系统走时也是当前皮肤自己的深色。
 - 默认皮肤 `official`（官方蓝白），与鸿蒙端一致；`paper`（暖纸）保留为可选风格。
 - 偏好键 `skin_id`（`PreferencesService.keySkin`），`SettingsController.setSkin` 先 notifyListeners 再落盘。
+
+## 四项能力补齐（2026-11-23，analyze/test 通过）
+
+1. **会话标题接服务端**：此前只解析 `delta.title` 却从不声明 `title`，设置里的「自动生成会话标题」
+   形同虚设。现 `ChatRequestOptions.enableTitle` → `title:{enabled:true}`，`ChatSession.autoTitled`
+   保证每个会话只请求一次；服务端标题只在「标题仍是自动取名」时覆盖（`_isAutoTitle` 比对默认名
+   与首条用户消息截断），用户重命名过的保留。
+2. **兜底模型名**：`model_service.dart` 从已下线的 `deepseek-chat/deepseek-reasoner` 改为
+   `deepseek-flash/deepseek-v4-pro`（与鸿蒙端、TD-005 对齐）。
+3. **阅读链接 `deepseek_read_url`**：声明工具、解析 `server_tool_event` 的 `read_link`（进度文案、
+   `call.page` → 来源卡片），并把末块 `delta.server_tool_calls` 原文存进
+   `ChatMessage.serverToolCallsJson`，`buildApiMessages` 原样回传（含 signature）。
+   设置>工具新增「阅读链接」（`feature_read_url`，默认开）。原文按 200KB/条封顶。
+   **顺带修复**：`server_tool_event` 原先按不存在的 `phase` 字段解析，检索进度从未显示过。
+4. **用户元信息 `latest_reminder`**：每条 user 消息前插
+   `<date>,<weekday>,<location>,App,<language>`，日期取消息自身时间，语言跟随界面（中文/English），
+   仅 DeepSeek 注入；设置>工具新增「所在地」（`user_location`，可留空）。截断按「历史单位」做，
+   reminder 与所属 user 消息不会被拆开。
+
+另修复：`generateReply` 的历史投影丢 `attachments`，导致多轮追问文档时第二轮就失忆
+（`replayMessage` 统一带全可回放字段）。
+
+已知边界：`flutter analyze` 零 issue、`flutter test` 30 项通过；本机无真机/模拟器，
+阅读链接、reminder 的真实接口表现仍需真机回归（`techdebt/TD-007`、`TD-004`）。
