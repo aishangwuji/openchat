@@ -707,9 +707,10 @@ export class ChatService {
       payloadObj['tools'] = tools as ESObject;
     }
     // 诊断用：联网搜索「不生效」时先看这一行，确认 tools 是否真的进了请求体。
-    hilog.info(DOMAIN, TAG, 'request tools=%{public}d webSearch=%{public}s readUrl=%{public}s imageTool=%{public}s model=%{public}s',
+    hilog.info(DOMAIN, TAG, 'request tools=%{public}d webSearch=%{public}s readUrl=%{public}s safety=%{public}s imageTool=%{public}s model=%{public}s',
       tools.length, String(options.enableWebSearch === true),
       String(options.enableReadUrl === true),
+      String(options.enableSafety === true),
       String(options.enableImageTool === true), options.model);
     // 内容安全：官方 safety_check（high=基础风控，low 与不传等价）。
     if (options.enableSafety === true && options.providerId === 'deepseek') {

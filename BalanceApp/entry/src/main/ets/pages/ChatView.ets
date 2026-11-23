@@ -2587,6 +2587,10 @@ export struct ChatView {
           this.scheduleAnchor(assistantMsg.id);
         },
         onSearch: (progress: SearchProgress) => {
+          // 诊断用：只记工具类型与动作，不记关键词（可能含用户输入）。
+          hilog.info(DOMAIN, TAG, 'tool %{public}s kind=%{public}s action=%{public}s sources=%{public}d failed=%{public}s',
+            progress.phase, progress.kind, progress.action, progress.sources.length,
+            String(progress.failed));
           assistantMsg.searchState = progress.phase === 'started' ? 'searching' : 'done';
           if (progress.sources.length > 0) {
             assistantMsg.sources = WebSearchService.mergeSources(assistantMsg.sources, progress.sources);
