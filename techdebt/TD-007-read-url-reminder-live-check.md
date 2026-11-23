@@ -1,39 +1,52 @@
-# TD-007 阅读链接 / 用户元信息未做真实接口联调
+# TD-007 阅读链接 / 用户元信息真机联调
 
-- 状态：待验证（代码与构建已完成，运行期未取证）
+- 状态：部分已验证（2026-11-23，鸿蒙真机 6UNBB26820047956）；余下项见文末
 - 影响范围：`BalanceApp/entry/src/main/ets/services/{ChatService,WebSearchService}.ets`、
   `BalanceApp/entry/src/main/ets/pages/{ChatView,Settings}.ets`、
   `mobile/lib/data/services/chat_service.dart`、`mobile/lib/state/chat_controller.dart`
 - 首次登记：2026-11-23
 
-## 为什么没验
+## 怎么验的（可复现）
 
-本机没有可用的 DeepSeek API Key（环境变量未设置、也没有已登录设备可读 Key），
-`hdc list targets` 为空（无真机），移动端也没有模拟器。因此这两项**只做了协议实现与
-静态校验**：鸿蒙端 `hvigor assembleHap` 通过，移动端 `flutter analyze` 零 issue、
-`flutter test` 30 项通过。没有对真实 SSE 抓过一次包。
+不用人工操作手机，全部走 hdc：
 
-## 必须回归的点（按优先级）
+1. `devecocli build` → `hdc install -r entry-default-signed.hap` → `hdc shell aa start -a EntryAbility -b com.example.openchat`；
+2. 界面读取：`hdc shell uitest dumpLayout -p /data/local/tmp/layout.json` + `hdc file recv`，
+   从 JSON 的 `attributes.text` 拿到消息列表文本（替代截图，符合项目「不做截图验证」约定）；
+3. 操作：`uitest uiInput click <x> <y>` / `uitest uiInput text '<消息>'`，
+   坐标从 layout 的 bounds 反推（发送按钮 = 文本 `↑` 的 clickable 父节点）；
+4. 日志：`hdc shell hilog` 过滤 `ChatService`，看
+   `request tools=… readUrl=…`、`reminder: N user turns`、
+   `server_tool_calls: N chars`（末块 signature 体积）、
+   `server_tool_calls replay: N turns`（历史里实际回传的轮数）。
 
-1. **阅读链接主链路**（关思考 + 只声明 `deepseek_read_url`，或关思考 + 搜索也声明）：
-   发一条带 URL 的消息，确认出现 `read_link` 调用与「正在阅读链接…」提示、来源卡片可点。
-2. **signature 多轮回传**（最关键）：读完链接后追问「把网页第一句原文贴出来」。
-   若模型答不出原文，说明 `server_tool_calls` 没被正确回传（检查请求体里 assistant 消息
-   是否带 `server_tool_calls` 且含 `signature`）。
-3. **开思考 + 搜索 + 阅读链接**：确认走深度思考搜索、本轮不出现 `read_link`
-   （官方语义，不是 bug）。
-4. **`latest_reminder` 格式**：抓请求体确认 `content` 形如 `2026-11-23,星期一,新加坡,App,中文`；
-   跨零点后再发一条，确认日期取的是新消息的时间而不是会话创建时间。
-5. **服务商隔离**：切到 Kimi / 小米 MiMo 发消息，确认请求里既没有 `latest_reminder`
-   也没有 `deepseek_read_url`（否则会 400）。
-6. **体积**：读一个长网页后看会话 JSON 体积、`serverToolCallsJson` 是否触发 200KB 丢弃；
-   鸿蒙端 Preferences 单值写入是否仍正常（历史会话列表能正常保存/加载）。
-7. **拒答组合**：开内容安全后读一个会被拦的链接，确认 `url_not_allowed` 时界面给的是
-   「链接读取失败」而不是卡在「正在阅读链接…」。
-8. 移动端同样跑 1-7（本机只能静态验证，见 TD-004）。
+## 已验证
+
+- **阅读链接主链路**：关思考、只声明 `deepseek_read_url`
+  （`tools=1 webSearch=false readUrl=true`），发
+  `Summarize https://example.com/ in one sentence`：
+  出现 `server_tool_calls: 2239 chars`，回答带「1 个网页」来源，内容正确。
+- **signature 多轮回传（客户端侧）**：追问 `Quote the first sentence of that page verbatim` 时
+  `server_tool_calls replay: 1 turns`，说明带 signature 的 assistant 消息原样进了下一轮请求。
+  - 该结论是**修复后**的结果：首次真机测试 `replay: 0`，定位到 `ChatView.sendMessage` 重建历史时
+    漏拷 `serverToolCallsJson`（提交 `46f2601`），补齐后复测为 1。
+- **服务端是否还原网页**：未能独立证明。追问「原文第一句」时模型给的是中文转述而不是英文原句，
+  但 example.com 正文属于模型常识内容，无法区分「signature 生效」与「模型本来就知道」。
+  要坐实需换一个模型不可能记住的页面（如当天新闻列表），当前未做。
+- **latest_reminder**：发 `What is today date and weekday`，回答
+  `今天是2026年11月23日，星期一`（与系统日期、界面语言一致）；日志 `reminder: N user turns`
+  随轮数递增（1→2→3），确认每轮都注入且格式含星期。
+- **体积**：单个网页 signature 实测 2239 字符，远低于 200KB/条上限。
+
+## 未验证（余下清单）
+
+1. 开深度思考 + 联网搜索 + 阅读链接时走深度思考搜索、本轮不产生 `read_link`（官方语义）。
+2. 切换到 Kimi / 小米 MiMo 时不注入 `latest_reminder`、不声明 `deepseek_read_url`（否则 400）。
+3. 内容安全拒答 + `url_not_allowed` 组合下的界面文案（是否停在「正在阅读链接…」）。
+4. 移动端（Flutter）同项目测：本机无模拟器/真机，只能静态验证，见 TD-004。
+5. 跨零点后的 reminder 日期（应取新消息时间而不是会话创建时间）。
 
 ## 回归通过后
 
-在本文件写结论（日期、模型、观察到的 `server_tool_use`/`read_link` 数量）并把状态改为
-「已验证」，同时更新 `systemmap/balance-app.md` 与 `systemmap/balance-app-mobile.md`
-对应小节的「验证」一行。
+在本文件写结论（日期、模型、观察到的 `read_link` 数量）并把状态改为「已验证」，同时更新
+`systemmap/balance-app.md` 与 `systemmap/balance-app-mobile.md` 对应小节的「验证」一行。

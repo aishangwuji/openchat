@@ -31,7 +31,7 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: 3f9c68a
+last_verified_commit: 46f2601
 last_verified: 2026-11-23
 ---
 
@@ -63,8 +63,11 @@ last_verified: 2026-11-23
   `sanitizeLocation`（`models/ChatModels.ets`）收口换行与 40 字上限。
 - 历史截断改为按「历史单位」做：1 条 user + 1 条 reminder 视为一个单位，条数/字符预算都不会把
   reminder 和它所属的 user 消息拆开（协议要求紧邻）。
-- 验证：`hvigor assembleHap` 构建通过。**真实 Key 的联网/阅读联调未做**（本机无 Key 环境），
-  回归清单见 `techdebt/TD-007-read-url-reminder-live-check.md`。
+- 验证：`hvigor assembleHap` 构建通过。2026-11-23 真机（6UNBB26820047956）联调：阅读链接
+  主链路通（`server_tool_calls: 2239 chars`、来源「1 个网页」），签名随历史回传经日志
+  确认为 `replay: 1 turns`；`latest_reminder` 答出「2026年11月23日，星期一」。
+  联调中发现并修复历史投影漏拷 `serverToolCallsJson`（`46f2601`）。
+  服务端是否真正还原网页、以及思考+搜索组合等未测项见 `techdebt/TD-007`。
 
 ## 主题体系：多皮肤运行时切换（2026-11-20，构建通过）
 
