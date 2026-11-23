@@ -286,6 +286,12 @@ class SettingsPage extends StatelessWidget {
                             settings.setFeatureBool(PreferencesService.keyFeatureFiles, v),
                       ),
                       _SwitchRow(
+                        title: s.t('settings_feature_read_url'),
+                        value: settings.featureReadUrl,
+                        onChanged: (bool v) =>
+                            settings.setFeatureBool(PreferencesService.keyFeatureReadUrl, v),
+                      ),
+                      _SwitchRow(
                         title: s.t('settings_feature_asr'),
                         value: settings.featureAsr,
                         onChanged: (bool v) =>

@@ -43,6 +43,7 @@ class SettingsController extends ChangeNotifier {
   bool _featureTts = true;
   bool _featureImage = true;
   bool _featureSafety = false;
+  bool _featureReadUrl = true;
   String _webSearchProvider = webSearchProviderDeepseek;
   String _ttsVoice = 'stella';
 
@@ -62,6 +63,7 @@ class SettingsController extends ChangeNotifier {
   bool get featureTts => _featureTts;
   bool get featureImage => _featureImage;
   bool get featureSafety => _featureSafety;
+  bool get featureReadUrl => _featureReadUrl;
   String get webSearchProvider => _webSearchProvider;
   String get ttsVoice => _ttsVoice;
 
@@ -110,6 +112,7 @@ class SettingsController extends ChangeNotifier {
     c._featureTts = prefs.getBool(PreferencesService.keyFeatureTts, fallback: true);
     c._featureImage = prefs.getBool(PreferencesService.keyFeatureImage, fallback: true);
     c._featureSafety = prefs.getBool(PreferencesService.keyFeatureSafety, fallback: false);
+    c._featureReadUrl = prefs.getBool(PreferencesService.keyFeatureReadUrl, fallback: true);
     c._webSearchProvider =
         prefs.getString(PreferencesService.keyWebSearchProvider,
             fallback: webSearchProviderDeepseek) ==
@@ -212,6 +215,9 @@ class SettingsController extends ChangeNotifier {
         break;
       case PreferencesService.keyFeatureSafety:
         _featureSafety = value;
+        break;
+      case PreferencesService.keyFeatureReadUrl:
+        _featureReadUrl = value;
         break;
       default:
         return;

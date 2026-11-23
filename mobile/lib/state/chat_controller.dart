@@ -902,6 +902,8 @@ class ChatController extends ChangeNotifier {
             _settings.webSearchProvider != webSearchProviderBaizhi,
         enableSafety: _settings.featureSafety,
         enableTitle: titleEnabled,
+        // 阅读链接：让服务端抓取用户消息里的 URL（与联网搜索独立，是否读由模型判断）。
+        enableReadUrl: _settings.featureReadUrl,
       ),
     );
 
@@ -938,10 +940,17 @@ class ChatController extends ChangeNotifier {
         }
         if (event.sources.isNotEmpty) {
           for (final SearchSource source in event.sources) {
+            if (assistant.sources.length >= 24) {
+              break;
+            }
             if (!assistant.sources.any((SearchSource s) => s.url == source.url)) {
               assistant.sources.add(source);
             }
           }
+        }
+        // 阅读链接：末块原文（含 signature）随消息持久化，下一轮原样回传。
+        if (event.serverToolCallsJson.isNotEmpty) {
+          assistant.serverToolCallsJson = event.serverToolCallsJson;
         }
         if (event.citations.isNotEmpty) {
           citations.addAll(event.citations);
@@ -1345,6 +1354,7 @@ ChatMessage replayMessage(ChatMessage message, String identityName) {
     parentId: message.parentId,
     reasoningContent: message.reasoningContent,
     attachments: message.attachments,
+    serverToolCallsJson: message.serverToolCallsJson,
   );
 }
 

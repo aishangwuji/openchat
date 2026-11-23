@@ -24,6 +24,7 @@ class ChatStreamEvent {
     this.citations = const <CitationRange>[],
     this.title = '',
     this.refusal = '',
+    this.serverToolCallsJson = '',
     this.toolCallIndex = -1,
     this.toolCallId = '',
     this.toolCallName = '',
@@ -43,6 +44,8 @@ class ChatStreamEvent {
   final String title;
   /// 内容安全拒答原因（finish_reason=content_filter / delta.refusal）。
   final String refusal;
+  /// 末块 `delta.server_tool_calls` 的原文（含阅读链接的 signature，多轮必须原样回传）。
+  final String serverToolCallsJson;
   /// 客户端工具调用分片：index 相同的分片需要累加。
   final int toolCallIndex;
   final String toolCallId;
@@ -67,6 +70,7 @@ class ChatRequestOptions {
     this.enableImageTool = false,
     this.enableSafety = false,
     this.enableTitle = false,
+    this.enableReadUrl = false,
   });
 
   final String providerId;
@@ -87,6 +91,25 @@ class ChatRequestOptions {
   final bool enableSafety;
   /// 会话标题：声明 title.enabled（仅 DeepSeek）；只在会话首次请求开启。
   final bool enableTitle;
+  /// 阅读链接：声明 deepseek_read_url（仅 DeepSeek），模型自动读用户消息里的 URL。
+  final bool enableReadUrl;
+}
+
+/// 联网能力的数据块 kind（其余 kind 是别的工具，解析时忽略）。
+const Set<String> _webToolKinds = <String>{
+  'search',
+  'deep_search',
+  'read_link',
+  'image_search',
+  'deep_image_search',
+};
+
+/// 一次服务端工具事件的解析结果。
+class _ToolEvent {
+  const _ToolEvent({this.hint = '', this.sources = const <SearchSource>[]});
+
+  final String hint;
+  final List<SearchSource> sources;
 }
 
 /// OpenAI-compatible streaming engine.
@@ -194,9 +217,20 @@ class ChatService {
       }
       final Object? content = delta['content'];
       final Object? reasoning = delta['reasoning_content'];
-      final String hint = _searchHint(choice['server_tool_event']);
+      final _ToolEvent toolEvent = _parseToolEvent(choice['server_tool_event']);
       final List<CitationRange> citations = _parseAnnotations(delta['annotations']);
-      final List<SearchSource> sources = <SearchSource>[];
+      // 完整的 server_tool_calls 只在带 finish_reason 的最后一个 chunk 下发一次。
+      final Object? toolCallsRaw = delta['server_tool_calls'];
+      String toolCallsJson = '';
+      if (toolCallsRaw is List && toolCallsRaw.isNotEmpty) {
+        final String encoded = jsonEncode(toolCallsRaw);
+        if (encoded.length <= maxServerToolCallsChars) {
+          toolCallsJson = encoded;
+        }
+      }
+      final List<SearchSource> sources = <SearchSource>[
+        ...toolEvent.sources,
+      ];
       for (final CitationRange cite in citations) {
         if (!sources.any((SearchSource s) => s.url == cite.url)) {
           sources.add(SearchSource(url: cite.url, title: cite.title));
@@ -243,11 +277,12 @@ class ChatService {
       }      return ChatStreamEvent(
         content: content is String ? content : '',
         reasoning: reasoning is String ? reasoning : '',
-        searchHint: hint,
+        searchHint: toolEvent.hint,
         sources: sources,
         citations: citations,
         title: title,
         refusal: refusal,
+        serverToolCallsJson: toolCallsJson,
         toolCallIndex: callIndex,
         toolCallId: callId,
         toolCallName: callName,
@@ -285,8 +320,13 @@ class ChatService {
       final String reasoning = message.reasoningContent ?? '';
       final bool hasAtts =
           message.isUser && enableFiles && message.attachments.isNotEmpty;
+      // 服务端工具调用（阅读链接的 signature）必须随历史原样回传，否则模型读不到旧网页。
+      final List<Map<String, dynamic>>? serverToolCalls = message.isAssistant
+          ? parseServerToolCalls(message.serverToolCallsJson)
+          : null;
+      final bool hasToolCalls = serverToolCalls != null;
       // 纯附件消息（只发文件不打字）也要保留，否则追问会丢文档。
-      if (replay.isEmpty && reasoning.isEmpty && !hasAtts) {
+      if (replay.isEmpty && reasoning.isEmpty && !hasAtts && !hasToolCalls) {
         continue;
       }
       final Map<String, dynamic> item = <String, dynamic>{
@@ -310,6 +350,9 @@ class ChatService {
       if (message.isAssistant && reasoning.isNotEmpty) {
         item['reasoning_content'] = reasoning;
         chars += reasoning.length;
+      }
+      if (serverToolCalls != null) {
+        item['server_tool_calls'] = serverToolCalls;
       }
       item['_chars'] = chars;
       candidates.add(item);
@@ -354,6 +397,11 @@ class ChatService {
     final List<Map<String, dynamic>> tools = <Map<String, dynamic>>[];
     if (options.enableWebSearch && options.providerId == 'deepseek') {
       tools.add(<String, dynamic>{'type': 'deepseek_web_search'});
+    }
+    // 阅读链接：与联网搜索可同时声明，但服务端规则是「开思考 + 声明搜索」走深度思考搜索、
+    // 不单独读链接；只有关思考或未声明搜索时才会读用户消息里的 URL。
+    if (options.enableReadUrl && options.providerId == 'deepseek') {
+      tools.add(<String, dynamic>{'type': 'deepseek_read_url'});
     }
     if (options.enableImageTool && options.providerId == 'deepseek') {
       tools.add(_imageToolDeclaration());
@@ -415,19 +463,118 @@ class ChatService {
   static String _truncate(String text) =>
       text.length <= 500 ? text : '${text.substring(0, 500)}…';
 
-  /// server_tool_event → 一行中文进度提示；未知事件返回空串。
-  static String _searchHint(Object? raw) {
+  /// server_tool_event → 进度提示 + 本步产出的来源。
+  ///
+  /// 协议（Chat Completions）：`{type: "call_started"|"call_completed", step, call}`；
+  /// `call` 带 `kind`、`action`（search/open_page/find_in_page/read_link），
+  /// 结束时带 `sources`（搜索）或 `page`（打开网页/阅读链接）；`call_completed` 不带 `kind`。
+  static _ToolEvent _parseToolEvent(Object? raw) {
     if (raw is! Map) {
-      return '';
+      return const _ToolEvent();
     }
-    final Object? phase = raw['phase'];
-    if (phase == 'started') {
+    final Object? type = raw['type'];
+    if (type != 'call_started' && type != 'call_completed') {
+      return const _ToolEvent();
+    }
+    final Object? call = raw['call'];
+    if (call is! Map) {
+      return const _ToolEvent();
+    }
+    final String kind = call['kind'] is String ? call['kind'] as String : '';
+    // 只关心联网能力；明确是别的工具（如生图）才丢弃，kind 缺失一律放行。
+    if (kind.isNotEmpty && !_webToolKinds.contains(kind)) {
+      return const _ToolEvent();
+    }
+
+    String actionType = '';
+    final List<String> queries = <String>[];
+    final Object? action = call['action'];
+    if (action is Map) {
+      if (action['type'] is String) {
+        actionType = action['type'] as String;
+      }
+      final Object? rawQueries = action['queries'];
+      if (rawQueries is List) {
+        for (final Object? q in rawQueries) {
+          if (q is String && q.trim().isNotEmpty) {
+            queries.add(q.trim());
+          }
+        }
+      }
+    }
+
+    if (type == 'call_started') {
+      return _ToolEvent(hint: _startedHint(actionType, kind, queries));
+    }
+
+    // 调用结束：把搜索结果或打开的网页转成来源卡片；失败时给一行提示。
+    final List<SearchSource> sources = <SearchSource>[];
+    final Object? rawSources = call['sources'];
+    if (rawSources is List) {
+      for (final Object? item in rawSources) {
+        if (item is! Map) {
+          continue;
+        }
+        final SearchSource? source = _sourceFromApi(item);
+        if (source != null) {
+          sources.add(source);
+        }
+      }
+    }
+    final Object? page = call['page'];
+    if (page is Map) {
+      final SearchSource? source = _sourceFromApi(page);
+      if (source != null) {
+        sources.add(source);
+      }
+    }
+    if (call['status'] == 'failed') {
+      return _ToolEvent(
+        hint: actionType == 'read_link' ? '链接读取失败，继续整理答案…' : '',
+        sources: sources,
+      );
+    }
+    return _ToolEvent(sources: sources);
+  }
+
+  /// API 的 snake_case 来源对象 → SearchSource（http/https 之外的直接丢弃）。
+  static SearchSource? _sourceFromApi(Map<Object?, Object?> raw) {
+    final Object? url = raw['url'];
+    if (url is! String ||
+        !(url.startsWith('http://') || url.startsWith('https://'))) {
+      return null;
+    }
+    final Object? title = raw['title'];
+    final Object? publishedAt = raw['published_at'];
+    return SearchSource(
+      url: url,
+      title: title is String && title.trim().isNotEmpty ? title.trim() : url,
+      snippet: raw['snippet'] is String ? raw['snippet'] as String : null,
+      siteName: raw['site_name'] is String ? raw['site_name'] as String : null,
+      publishedAt: publishedAt is String ? publishedAt : null,
+    );
+  }
+
+  static String _startedHint(String action, String kind, List<String> queries) {
+    if (action == 'read_link') {
+      return '正在阅读链接…';
+    }
+    if (action == 'open_page') {
+      return '正在阅读网页…';
+    }
+    if (action == 'find_in_page') {
+      return '正在网页内查找…';
+    }
+    if (kind == 'image_search' || kind == 'deep_image_search') {
+      return '正在按图片搜索…';
+    }
+    if (queries.isEmpty) {
       return '正在联网搜索…';
     }
-    if (phase == 'completed') {
-      return '已搜索';
+    if (queries.length == 1) {
+      return '正在联网搜索「${queries.first}」…';
     }
-    return '';
+    return '正在联网搜索「${queries.first}」等 ${queries.length} 个关键词…';
   }
 
   /// 解析 delta.annotations 中的 url_citation；偏移是 Unicode 码点。

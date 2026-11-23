@@ -1,8 +1,74 @@
+import 'dart:convert';
+
 enum MessageRole { user, assistant, system }
 
 enum MessageStatus { sending, streaming, success, error }
 
 enum SceneMode { single, group }
+
+/// 服务端工具调用原文的大小上限（按条）：单个网页的 signature 可能有几十 KB，
+/// 超限时只丢这条回复的原文，避免整份会话 JSON 撑爆本地存储。
+const int maxServerToolCallsChars = 200000;
+
+/// 解析并校验持久化的服务端工具调用原文；结构不符返回 null。
+/// Business Rule: 这是跨边界数据（本地存储可能被改坏），回传前必须校验，
+/// 校验失败按「没有工具调用」处理，请求仍能正常发出。
+List<Map<String, dynamic>>? parseServerToolCalls(String raw) {
+  if (raw.isEmpty || raw.length > maxServerToolCallsChars) {
+    return null;
+  }
+  try {
+    final Object? parsed = jsonDecode(raw);
+    if (parsed is! List || parsed.isEmpty) {
+      return null;
+    }
+    final List<Map<String, dynamic>> steps = <Map<String, dynamic>>[];
+    for (final Object? step in parsed) {
+      if (step is! Map) {
+        return null;
+      }
+      final Object? calls = step['calls'];
+      if (calls is! List) {
+        return null;
+      }
+      final List<Map<String, dynamic>> okCalls = <Map<String, dynamic>>[];
+      for (final Object? call in calls) {
+        if (call is! Map) {
+          return null;
+        }
+        final Object? kind = call['kind'];
+        final Object? action = call['action'];
+        if (kind is! String || action is! Map) {
+          return null;
+        }
+        // 整条调用原样保留（signature 在里面，不能重拼）。
+        okCalls.add(Map<String, dynamic>.from(call));
+      }
+      if (okCalls.isEmpty) {
+        continue;
+      }
+      final Map<String, dynamic> out = <String, dynamic>{'calls': okCalls};
+      if (step['index'] is num) {
+        out['index'] = (step['index'] as num).toInt();
+      }
+      if (step['reasoning_content'] is String) {
+        out['reasoning_content'] = step['reasoning_content'];
+      }
+      steps.add(out);
+    }
+    return steps.isEmpty ? null : steps;
+  } catch (_) {
+    return null;
+  }
+}
+
+/// 存储边界：结构不合法一律按空处理，避免把脏数据回传给接口。
+String _validatedServerToolCalls(Object? raw) {
+  if (raw is! String) {
+    return '';
+  }
+  return parseServerToolCalls(raw) == null ? '' : raw;
+}
 
 /// 联网搜索来源（持久化，按 url 去重、按出现顺序排列）。
 class SearchSource {
@@ -121,6 +187,7 @@ class ChatMessage {
     this.imageMeta,
     this.imageAspect,
     this.imagePrompt,
+    this.serverToolCallsJson = '',
   })  : childIds = childIds ?? <String>[],
         mentionedIds = mentionedIds ?? <String>[],
         sources = sources ?? <SearchSource>[],
@@ -150,6 +217,10 @@ class ChatMessage {
   String? imageMeta;
   double? imageAspect;
   String? imagePrompt;
+  /// 服务端工具调用的原文（Chat Completions 的 `delta.server_tool_calls`）。
+  /// Business Rule: 阅读链接的网页正文加密在 `signature` 里，多轮必须原样回传整段，
+  /// 故这里存原始 JSON 字符串而不是重新拼结构；为空表示本轮没有服务端工具调用。
+  String serverToolCallsJson;
   String? imageHint;
   String? searchHint;
   bool searching = false;
@@ -227,6 +298,8 @@ class ChatMessage {
           'attachments': attachments.map((MessageAttachment a) => a.toJson()).toList(),
         if (sources.isNotEmpty)
           'sources': sources.map((SearchSource s) => s.toJson()).toList(),
+        if (serverToolCallsJson.isNotEmpty)
+          'serverToolCalls': serverToolCallsJson,
       };
 
   /// Boundary parser: persisted data is untrusted, so every field is
@@ -282,6 +355,7 @@ class ChatMessage {
       imageMeta: raw['imageMeta'] is String ? raw['imageMeta'] as String : null,
       imageAspect: raw['imageAspect'] is num ? (raw['imageAspect'] as num).toDouble() : null,
       imagePrompt: raw['imagePrompt'] is String ? raw['imagePrompt'] as String : null,
+      serverToolCallsJson: _validatedServerToolCalls(raw['serverToolCalls']),
     );
   }
 }
