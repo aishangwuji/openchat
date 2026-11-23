@@ -20,6 +20,7 @@ import {
   KEY_APP_LOCK_ENABLED, KEY_TTS_VOICE, DEFAULT_TTS_VOICE,
   KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS, KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY,
   KEY_FEATURE_READ_URL,
+  KEY_USER_LOCATION,
   KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_DEEPSEEK, WEB_SEARCH_PROVIDER_BAIZHI,
   KEY_BAIZHI_IMAGE_READY, KEY_BAIZHI_WEB_READY
 } from '../services/SettingsService';
@@ -96,6 +97,10 @@ struct Settings {
   @StorageProp(KEY_FEATURE_IMAGE) featureImage: boolean = true;
   @StorageProp(KEY_FEATURE_SAFETY) featureSafety: boolean = false;
   @StorageProp(KEY_FEATURE_READ_URL) featureReadUrl: boolean = true;
+  /** 用户所在地（可留空）：随 latest_reminder 告诉模型。 */
+  @StorageProp(KEY_USER_LOCATION) userLocation: string = '';
+  @State showLocationSheet: boolean = false;
+  @State locationInput: string = '';
   @State showAppLockSheet: boolean = false;
 
   // 字体大小滑块临时滑动值 (1 ~ 7)
@@ -158,8 +163,19 @@ struct Settings {
     }
   }
 
-  private async selectLanguage(code: AppLanguage): Promise<void> {
+  /** 保存所在地：只影响 latest_reminder，留空 = 不告诉模型所在地。 */
+  private async saveUserLocation(): Promise<void> {
     try {
+      const uiCtx = this.getUIContext();
+      const hostCtx = uiCtx.getHostContext() as common.UIAbilityContext;
+      await SettingsService.setUserLocation(hostCtx, this.locationInput);
+      this.showLocationSheet = false;
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'saveUserLocation failed: %{public}s', String(err));
+    }
+  }
+
+  private async selectLanguage(code: AppLanguage): Promise<void> {    try {
       const uiCtx = this.getUIContext();
       const hostCtx = uiCtx.getHostContext() as common.UIAbilityContext;
       await I18nService.setLanguage(hostCtx, code);
@@ -439,6 +455,12 @@ struct Settings {
                 this.imageHasKey ? this.t('settings_image_key_on') : this.t('settings_image_key_off'), true, () => {
                   this.showImageSheet = true;
                 })
+              // 用户元信息：所在地（可留空），随 latest_reminder 注入对话。
+              this.SettingRow($r('app.media.ic_personalize'), this.t('settings_user_location'),
+                this.userLocation.length > 0 ? this.userLocation : this.t('settings_user_location_empty'), true, () => {
+                  this.locationInput = this.userLocation;
+                  this.showLocationSheet = true;
+                })
             }
             .width('92%')
             .backgroundColor(skinColor('surface'))
@@ -592,6 +614,11 @@ struct Settings {
       // 底部弹框：百智云搜索 Key
       if (this.showWebKeySheet) {
         this.WebKeySheet()
+      }
+
+      // 底部弹框：所在地（用户元信息标记）
+      if (this.showLocationSheet) {
+        this.LocationSheet()
       }
 
       // 底部弹框：应用锁面板
@@ -1481,7 +1508,88 @@ struct Settings {
     .width('100%')
     .height('100%')
   }
-@Builder
+
+  // ── 10. 所在地 Sheet（用户元信息标记） ──
+  @Builder
+  LocationSheet() {
+    Stack({ alignContent: Alignment.Bottom }) {
+      Rect()
+        .width('100%')
+        .height('100%')
+        .fill(skinColor('overlay_scrim'))
+        .onClick(() => {
+          this.showLocationSheet = false;
+        })
+
+      Column() {
+        Row() {
+          Text(this.t('settings_user_location'))
+            .fontSize(16)
+            .fontWeight(FontWeight.Bold)
+            .fontColor(skinColor('text_title'))
+          Blank()
+          Text('✕')
+            .fontSize(16)
+            .fontColor(skinColor('text_muted'))
+            .padding(6)
+            .onClick(() => {
+              this.showLocationSheet = false;
+            })
+        }
+        .width('100%')
+        .padding({ left: 20, right: 20, top: 16, bottom: 8 })
+
+        Text(this.t('settings_user_location_desc'))
+          .fontSize(12)
+          .fontColor(skinColor('text_secondary'))
+          .width('90%')
+          .margin({ bottom: 12 })
+
+        TextInput({ placeholder: this.t('settings_user_location_placeholder'), text: this.locationInput })
+          .width('90%')
+          .height(46)
+          .backgroundColor(skinColor('fill'))
+          .borderRadius(12)
+          .onChange((v: string) => {
+            this.locationInput = v;
+          })
+
+        Row({ space: 12 }) {
+          Button(this.t('settings_image_clear'))
+            .layoutWeight(1)
+            .height(44)
+            .backgroundColor(skinColor('fill'))
+            .fontColor(skinColor('text_primary'))
+            .borderRadius(22)
+            .onClick(() => {
+              this.locationInput = '';
+            })
+          Button(this.t('settings_image_save'))
+            .layoutWeight(1)
+            .height(44)
+            .backgroundColor(skinColor('accent_solid'))
+            .fontColor(skinColor('accent_contrast'))
+            .borderRadius(22)
+            .onClick(() => {
+              this.saveUserLocation();
+            })
+        }
+        .width('90%')
+        .margin({ top: 16, bottom: 28 })
+      }
+      .width('100%')
+      .backgroundColor(skinColor('surface'))
+      .borderRadius({ topLeft: 24, topRight: 24 })
+      .transition(TransitionEffect.asymmetric(
+        TransitionEffect.move(TransitionEdge.BOTTOM),
+        TransitionEffect.move(TransitionEdge.BOTTOM)
+      ))
+    }
+    .width('100%')
+    .height('100%')
+  }
+
+  @Builder
   SettingRow(icon: Resource, title: string, value: string, isLast: boolean, onTap: () => void) {
     Row() {
       Row() {

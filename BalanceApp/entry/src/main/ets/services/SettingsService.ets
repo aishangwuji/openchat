@@ -8,6 +8,7 @@
 import { preferences } from '@kit.ArkData';
 import { common, ConfigurationConstant } from '@kit.AbilityKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
+import { sanitizeLocation } from '../models/ChatModels';
 
 const DOMAIN = 0x0000;
 const TAG = 'SettingsService';
@@ -43,6 +44,8 @@ export const KEY_FEATURE_TTS = 'feature_tts'; // boolean，默认 true
 export const KEY_FEATURE_IMAGE = 'feature_image'; // boolean，默认 true
 export const KEY_FEATURE_SAFETY = 'feature_safety'; // boolean，默认 false
 export const KEY_FEATURE_READ_URL = 'feature_read_url'; // boolean，默认 true
+/** 用户所在地（注入 latest_reminder，可留空）。 */
+export const KEY_USER_LOCATION = 'user_location'; // string，默认 ''
 export const DEFAULT_TTS_VOICE = 'stella';
 /**
  * 解析后的实际深色态（system 时跟随系统），供非资源侧（Markdown 主题）读取。
@@ -375,6 +378,24 @@ export class SettingsService {
     const provider: string = typeof provVal === 'string' && (provVal as string) === WEB_SEARCH_PROVIDER_BAIZHI
       ? WEB_SEARCH_PROVIDER_BAIZHI : WEB_SEARCH_PROVIDER_DEEPSEEK;
     AppStorage.setOrCreate<string>(KEY_WEB_SEARCH_PROVIDER, provider);
+    const locVal: preferences.ValueType = await prefs.get(KEY_USER_LOCATION, '');
+    const location: string = typeof locVal === 'string' ? sanitizeLocation(locVal as string) : '';
+    AppStorage.setOrCreate<string>(KEY_USER_LOCATION, location);
+  }
+
+  /** 用户所在地：注入 latest_reminder，可留空；写盘后同步 AppStorage。 */
+  public static async setUserLocation(context: common.UIAbilityContext, raw: string): Promise<void> {
+    const location: string = sanitizeLocation(raw);
+    AppStorage.setOrCreate<string>(KEY_USER_LOCATION, location);
+    try {
+      if (SettingsService.prefsInstance === undefined) {
+        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
+      }
+      await SettingsService.prefsInstance.put(KEY_USER_LOCATION, location);
+      await SettingsService.prefsInstance.flush();
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'setUserLocation save failed: %{public}s', String(err));
+    }
   }
 
   private static async loadFeature(key: string, fallback: boolean): Promise<void> {

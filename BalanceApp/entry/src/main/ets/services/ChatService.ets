@@ -19,7 +19,7 @@
 import { http } from '@kit.NetworkKit';
 import { util } from '@kit.ArkTS';
 import { hilog } from '@kit.PerformanceAnalysisKit';
-import { ChatMessage, CitationRange, MessageAttachment } from '../models/ChatModels';
+import { ChatMessage, CitationRange, MessageAttachment, sanitizeLocation } from '../models/ChatModels';
 import { findProvider, ProviderDefinition } from './ProviderRegistry';
 import { SearchProgress, WebSearchService } from './WebSearchService';
 
@@ -34,10 +34,25 @@ const READ_TIMEOUT = 90000;
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_HISTORY_CHARS = 12000;
 
-/** 待发消息条目：item 为最终请求体，chars 仅用于本地历史预算（非服务端 token 估算）。 */
+/** Date.getDay() 是 0(周日)~6(周六)；weekday 随语言切换（官方《用户元信息标记》）。 */
+const ZH_WEEKDAYS: string[] = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
+const EN_WEEKDAYS: string[] = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+/** 待发消息条目：items 通常 1 条，user 消息可能多带一条 latest_reminder。 */
 interface ApiMessageEntry {
-  item: Record<string, ESObject>;
+  items: Record<string, ESObject>[];
   chars: number;
+}
+
+/**
+ * 用户元信息标记（latest_reminder）的取值来源。
+ * Business Rule: 只有 DeepSeek 认这个 role，其他服务商会 400，调用方按服务商决定是否传。
+ */
+export interface ReminderOptions {
+  /** 所在地，可留空（官方允许空字段，可含逗号）。 */
+  location: string;
+  /** 'zh-CN' | 'en-US'：决定星期写法与 language 字段。 */
+  language: string;
 }
 
 /** 模型返回的一次函数调用（客户端工具：生图）。 */
@@ -111,6 +126,8 @@ export interface ChatRequestOptions {
    *   （官方语义），请求照常成功，只是不产生 read_link 调用。
    */
   enableReadUrl?: boolean;
+  /** 用户元信息标记（日期/星期/所在地/语言）；仅 DeepSeek 生效。 */
+  reminder?: ReminderOptions;
 }
 
 export class ChatService {
@@ -144,7 +161,8 @@ export class ChatService {
     const formattedMessages: Record<string, ESObject>[] =
       ChatService.buildApiMessages(options.messages, options.systemPrompt,
         options.providerId === 'deepseek' && options.enableFiles !== false,
-        options.providerId === 'kimi' || options.providerId === 'mimo');
+        options.providerId === 'kimi' || options.providerId === 'mimo',
+        options.providerId === 'deepseek' ? options.reminder : undefined);
 
     const payloadObj: Record<string, ESObject> = ChatService.buildPayload(options, def, formattedMessages, true);
     const bodyStr: string = JSON.stringify(payloadObj);
@@ -336,7 +354,8 @@ export class ChatService {
       const formattedMessages: Record<string, ESObject>[] =
         ChatService.buildApiMessages(options.messages, options.systemPrompt,
           options.providerId === 'deepseek',
-          options.providerId === 'kimi' || options.providerId === 'mimo');
+          options.providerId === 'kimi' || options.providerId === 'mimo',
+          options.providerId === 'deepseek' ? options.reminder : undefined);
 
       const payloadObj: Record<string, ESObject> = ChatService.buildPayload(options, def, formattedMessages, false);
 
@@ -391,7 +410,8 @@ export class ChatService {
    *   ChatStorageService 按 session 存全量承担，此处只裁剪本次请求。
    */
   private static buildApiMessages(messages: ChatMessage[], systemPrompt: string | undefined,
-    enableFiles: boolean, preserveThinking: boolean): Record<string, ESObject>[] {
+    enableFiles: boolean, preserveThinking: boolean,
+    reminder?: ReminderOptions): Record<string, ESObject>[] {
     const out: Record<string, ESObject>[] = [];
     if (systemPrompt !== undefined && systemPrompt.trim().length > 0) {
       const sysMsg: Record<string, ESObject> = {
@@ -475,7 +495,14 @@ export class ChatService {
       if (replayedToolCalls !== undefined) {
         item['server_tool_calls'] = replayedToolCalls as ESObject;
       }
-      const entry: ApiMessageEntry = { item: item, chars: chars };
+      // 用户元信息标记：紧挨在它所属的 user 消息之前（协议要求，中间不能插别的消息）。
+      const items: Record<string, ESObject>[] = [];
+      if (reminder !== undefined && m.role === 'user') {
+        items.push(ChatService.buildReminderEntry(m, reminder));
+        chars += ChatService.REMINDER_CHARS;
+      }
+      items.push(item);
+      const entry: ApiMessageEntry = { items: items, chars: chars };
       candidates.push(entry);
     }
     // 条数截断：仅保留最新 MAX_HISTORY_MESSAGES 条。
@@ -498,10 +525,45 @@ export class ChatService {
     }
     let k: number = 0;
     while (k < kept.length) {
-      out.push(kept[k].item);
+      const unit: ApiMessageEntry = kept[k];
+      let ui: number = 0;
+      while (ui < unit.items.length) {
+        out.push(unit.items[ui]);
+        ui += 1;
+      }
       k += 1;
     }
     return out;
+  }
+
+  /**
+   * latest_reminder 的固定字符开销（日期/星期/语言），只用于本地历史预算。
+   * 该消息不产生 token 费用差异，这里只是保守估计。
+   */
+  private static readonly REMINDER_CHARS: number = 32;
+
+  /**
+   * `<date>,<weekday>,<location>,App,<language>`（官方《用户元信息标记》）。
+   * Business Rule: 日期取该条消息自己的时间，回放历史时每轮仍是当天的日期；
+   *   language 必须用该语言自身书写（中文 / English），weekday 随之切换。
+   */
+  private static buildReminderEntry(m: ChatMessage, reminder: ReminderOptions): Record<string, ESObject> {
+    const date: Date = new Date(m.createdAt);
+    const year: string = `${date.getFullYear()}`;
+    const monthNum: number = date.getMonth() + 1;
+    const dayNum: number = date.getDate();
+    const month: string = monthNum < 10 ? `0${monthNum}` : `${monthNum}`;
+    const day: string = dayNum < 10 ? `0${dayNum}` : `${dayNum}`;
+    const isEnglish: boolean = reminder.language === 'en-US';
+    const weekdays: string[] = isEnglish ? EN_WEEKDAYS : ZH_WEEKDAYS;
+    const weekday: string = weekdays[date.getDay()];
+    const language: string = isEnglish ? 'English' : '中文';
+    const location: string = sanitizeLocation(reminder.location);
+    const entry: Record<string, ESObject> = {
+      'role': 'latest_reminder',
+      'content': `${year}-${month}-${day},${weekday},${location},App,${language}`
+    };
+    return entry;
   }
 
   /**

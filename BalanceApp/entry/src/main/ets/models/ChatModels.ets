@@ -159,3 +159,16 @@ export interface ModelInfo {
   name: string;
   description?: string;
 }
+
+/**
+ * 所在地清洗：换行压成空格、去首尾空白、封顶 40 字（可留空）。
+ * Business Rule: 该值会拼进 latest_reminder 的逗号分隔字段，
+ *   换行/超长必须在这里收口，否则请求体可能畸形（官方要求 400 校验）。
+ */
+export function sanitizeLocation(raw: string): string {
+  let cleaned: string = raw.replace(/\r/g, ' ').replace(/\n/g, ' ').trim();
+  if (cleaned.length > 40) {
+    cleaned = cleaned.substring(0, 40);
+  }
+  return cleaned;
+}

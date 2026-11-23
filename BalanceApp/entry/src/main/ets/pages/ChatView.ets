@@ -28,6 +28,7 @@ import { TtsCallbacks, TtsService } from '../services/TtsService';
 import {
   SettingsService, KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS,
   KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY, KEY_FEATURE_READ_URL, KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_BAIZHI,
+  KEY_USER_LOCATION,
   KEY_BAIZHI_IMAGE_READY
 } from '../services/SettingsService';
 import { FileUploadService, UploadedFile } from '../services/FileUploadService';
@@ -132,6 +133,8 @@ export struct ChatView {
   @StorageProp(KEY_FEATURE_SAFETY) featureSafety: boolean = false;
   /** 阅读链接开关：声明 deepseek_read_url，让模型读用户消息里的 URL。 */
   @StorageProp(KEY_FEATURE_READ_URL) featureReadUrl: boolean = true;
+  /** 用户所在地（设置里可留空）：随 latest_reminder 告诉模型。 */
+  @StorageProp(KEY_USER_LOCATION) userLocation: string = '';
   @StorageProp(KEY_WEB_SEARCH_PROVIDER) webSearchProvider: string = 'deepseek';
   /** 展开来源明细的消息 id（'' = 全部收起）；点「N 个网页」胶囊切换。 */
   @State expandedSourceMsgId: string = '';
@@ -2713,6 +2716,11 @@ export struct ChatView {
         enableSafety: this.featureSafety,
         // 阅读链接：服务端抓用户消息里的 URL（是否读由模型判断）。
         enableReadUrl: this.featureReadUrl,
+        // 用户元信息：日期/语言/所在地（latest_reminder 仅 DeepSeek 生效，ChatService 内收口）。
+        reminder: {
+          location: this.userLocation,
+          language: I18nService.getLanguage()
+        },
         // 文件解析开关：关闭后历史附件不再以 content 块回传。
         enableFiles: this.featureFiles,
         // 会话标题：服务端扩展字段（仅 DeepSeek），首轮才开启。
