@@ -66,6 +66,7 @@ class ChatRequestOptions {
     this.enableFiles = false,
     this.enableImageTool = false,
     this.enableSafety = false,
+    this.enableTitle = false,
   });
 
   final String providerId;
@@ -84,6 +85,8 @@ class ChatRequestOptions {
   final bool enableImageTool;
   /// 内容安全：声明 safety_check.level=high（仅 DeepSeek）。
   final bool enableSafety;
+  /// 会话标题：声明 title.enabled（仅 DeepSeek）；只在会话首次请求开启。
+  final bool enableTitle;
 }
 
 /// OpenAI-compatible streaming engine.
@@ -361,6 +364,11 @@ class ChatService {
     // 内容安全：官方基础风控，输入输出都审核；拒答走 finish_reason/refusal。
     if (options.enableSafety && options.providerId == 'deepseek') {
       payload['safety_check'] = <String, String>{'level': 'high'};
+    }
+    // 会话标题：DeepSeek 扩展字段，与 tools 并列；服务端在最后一个 chunk 的
+    // delta.title 下发，回答结束后最多多等 5 秒，标题不计费。
+    if (options.enableTitle && options.providerId == 'deepseek') {
+      payload['title'] = <String, bool>{'enabled': true};
     }
 
     final bool thinkingOn =

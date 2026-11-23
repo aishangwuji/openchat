@@ -383,6 +383,33 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// 当前标题是否仍是自动取名：默认名，或首条用户消息的截断标题。
+  /// Business Rule: 只有自动取名的标题才允许被服务端标题覆盖，用户重命名过的必须保留。
+  bool _isAutoTitle(ChatSession session) {
+    if (session.title == '新对话') {
+      return true;
+    }
+    final String first = _firstUserText(session);
+    if (first.isEmpty) {
+      return false;
+    }
+    return session.title == autoTitleFor(first);
+  }
+
+  /// 首条用户消息正文（按 createdAt 取最早，兼容分叉后 messages 顺序不固定）。
+  String _firstUserText(ChatSession session) {
+    ChatMessage? earliest;
+    for (final ChatMessage m in session.messages) {
+      if (!m.isUser || m.content.trim().isEmpty) {
+        continue;
+      }
+      if (earliest == null || m.createdAt < earliest.createdAt) {
+        earliest = m;
+      }
+    }
+    return earliest?.content ?? '';
+  }
+
   Future<void> toggleSessionPrivacy(String sessionId) async {
     ChatSession? session;
     for (final ChatSession s in _sessions) {
@@ -714,8 +741,7 @@ class ChatController extends ChangeNotifier {
       return;
     }
     if (session.title == '新对话') {
-      session.title =
-          trimmed.length > 14 ? '${trimmed.substring(0, 14)}...' : trimmed;
+      session.title = autoTitleFor(trimmed);
     }
     final List<ChatMessage> path = activePath;
     final String parentId = path.isEmpty ? '' : path.last.id;
@@ -807,6 +833,11 @@ class ChatController extends ChangeNotifier {
     final int thinkingStart = DateTime.now().millisecondsSinceEpoch;
     int thinkingEnd = 0;
     bool finished = false;
+    // 会话标题：每个会话只请求一次；标题仍是自动取名时才请求（用户重命名过就不覆盖）。
+    // Business Rule: 服务端不保证给标题（拒答/出错时没有），故本地兜底标题必须先写。
+    final bool titleEnabled = !session.autoTitled &&
+        _settings.featureTitle &&
+        _isAutoTitle(session);
 
     void complete({required bool stopped}) {
       if (finished) {
@@ -818,6 +849,9 @@ class ChatController extends ChangeNotifier {
       }
       _stopTicker();
       _subscription = null;
+      if (titleEnabled) {
+        session.autoTitled = true;
+      }
       if (assistant.content.isEmpty && assistant.status == MessageStatus.streaming) {
         assistant.status = MessageStatus.success;
       } else if (assistant.status == MessageStatus.streaming) {
@@ -883,7 +917,9 @@ class ChatController extends ChangeNotifier {
             _currentProviderId == 'deepseek',
         enableWebSearch: _enableWebSearch &&
             _settings.webSearchProvider != webSearchProviderBaizhi,
-        enableSafety: _settings.featureSafety,      ),
+        enableSafety: _settings.featureSafety,
+        enableTitle: titleEnabled,
+      ),
     );
 
     _subscription = stream.listen(
@@ -928,8 +964,8 @@ class ChatController extends ChangeNotifier {
           citations.addAll(event.citations);
         }
         if (event.title.isNotEmpty &&
-            _settings.featureTitle &&
-            session.title == '新对话') {
+            titleEnabled &&
+            _isAutoTitle(session)) {
           session.title = event.title;
         }
         if (event.refusal.isNotEmpty) {
@@ -1308,6 +1344,14 @@ class ChatController extends ChangeNotifier {
         return 1;
     }
   }
+}
+
+/// 本地兜底会话标题：取用户首条消息的前 14 个字符。
+/// Business Rule: 服务端标题（title.enabled）只在首轮请求、且可能不下发，
+/// 所以发送时就先落一个本地标题，服务端标题到达后按「是否自动取名」决定是否替换。
+String autoTitleFor(String text) {
+  final String trimmed = text.trim();
+  return trimmed.length > 14 ? '${trimmed.substring(0, 14)}...' : trimmed;
 }
 
 /// 在正文引用区间的末尾插入 [N](#cite-N) 标记。

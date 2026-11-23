@@ -302,6 +302,7 @@ class ChatSession {
     Map<String, String>? joinMap,
     this.userIdentityId = '',
     this.isPrivate = false,
+    this.autoTitled = false,
   })  : messages = messages ?? <ChatMessage>[],
         rootIds = rootIds ?? <String>[],
         participantIds = participantIds ?? <String>[],
@@ -322,6 +323,9 @@ class ChatSession {
   String userIdentityId;
   bool isPrivate;
 
+  /// 是否已向服务端请求过自动标题（每个会话只请求一次；失败也置位，避免每轮多等 5 秒）。
+  bool autoTitled;
+
   bool get isGroup => sceneMode == SceneMode.group && participantIds.length >= 2;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
@@ -339,6 +343,7 @@ class ChatSession {
         'joinMap': joinMap,
         'userIdentityId': userIdentityId,
         'isPrivate': isPrivate,
+        'autoTitled': autoTitled,
       };
 }
 

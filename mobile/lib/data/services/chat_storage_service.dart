@@ -184,6 +184,7 @@ class ChatStorageService {
       userIdentityId:
           raw['userIdentityId'] is String ? raw['userIdentityId'] as String : '',
       isPrivate: raw['isPrivate'] == true,
+      autoTitled: raw['autoTitled'] == true,
     );
   }
 
