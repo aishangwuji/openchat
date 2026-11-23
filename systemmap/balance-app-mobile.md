@@ -44,7 +44,7 @@ covered_paths:
   - mobile/test/balance_service_test.dart
   - mobile/test/citation_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 3f9c68a
+last_verified_commit: c78d88e
 last_verified: 2026-11-23
 ---
 
@@ -263,3 +263,30 @@ last_verified: 2026-11-23
 
 已知边界：`flutter analyze` 零 issue、`flutter test` 30 项通过；本机无真机/模拟器，
 阅读链接、reminder 的真实接口表现仍需真机回归（`techdebt/TD-007`、`TD-004`）。
+
+## 对话页对齐官方 chat-demo（2026-11-23，analyze/test 通过）
+
+参考 <https://github.com/deepseek-ai/chat-demo>（React 端侧 demo）重做四处移动端体验，
+原则是「借语义不搬实现」：demo 的 hover 预览、可拖拽分栏、桌面侧栏在手机上不成立。
+
+1. **搜索结果**：正文下方由「N 个来源胶囊」改为「最多 4 个重叠站点图标 + 参考了 N 个网页 +
+   箭头」摘要行（`ui/widgets/search_sources.dart`），点开底部面板看完整来源卡片（序号、
+   站点图标/名称、日期、标题两行、摘要两行），点卡片开系统浏览器。`SearchSource` 新增
+   持久化字段 `siteIcon`，加载失败回退站点首字母。
+2. **引用角标**：认官方 token `[citation:N]`（此前只认历史 `[ref_N]`，正文会残留字面量），
+   两种都转成可点角标；无对应来源的 token 丢弃；正文自带 token 时不再按 annotations 偏移
+   补角标（避免一处两个编号）。移动端没有 hover：点角标打开来源面板并高亮该条。
+3. **侧边栏**：会话按「今天 / 昨天 / 7 天内 / 30 天内 / 年月」分组（`core/utils/session_groups.dart`，
+   按自然日差值、先按更新时间倒序）；行内去掉「服务商 · N 条消息」副标题，右侧加「更多」
+   按钮（重命名/保密/删除仍复用原动作面板），长按保留。
+4. **Markdown**：新增 `ui/widgets/markdown_theme.dart`，把 gpt_markdown 的代码块（语言标签 +
+   复制按钮 + 中文提示）、表格（描边/表头底色/横向滚动）、引用块、行内代码、链接接到
+   `AppColors` 语义 token；思考内容也改 Markdown 渲染（链接不可点防误触）。
+5. **语音**：录音改为显式状态条（呼吸红点 + 「录音中 0:07」+ 五柱音量波形 + 取消），
+   识别中显示「正在识别语音…」且可取消（操作代号丢弃在途结果）；朗读全局单实例
+   （`TtsService.playingOwner`），播放中显示三根跳动音柱，结束后自动复位。
+   顺带修复：识别结果此前会把已有草稿覆盖成一个空格，现在追加。
+
+未跟 demo 的部分（移动端不适用或有代价）：分栏式搜索面板（手机改为底部面板）、
+hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）、继续生成（需 beta 接口
+与 prefix）、会话导入导出（两端都缺，见 TD-004/TD-006）。
