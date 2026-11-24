@@ -44,7 +44,7 @@ covered_paths:
   - mobile/test/balance_service_test.dart
   - mobile/test/citation_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 165fe17
+last_verified_commit: 1e5030b
 last_verified: 2026-11-24
 ---
 
@@ -310,5 +310,8 @@ hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）�
 - **凭据存储**：Cookie 与 API Key 一样进 `flutter_secure_storage`（`key_baizhi`），
   录入弹窗按 `credentialKind` 切换文案与校验（必须含 `baizhi_session`），
   粘贴带 `Cookie:` 前缀/换行会被 `normalizeCredential` 归一化。
+- **不进聊天列表**：注册表与聊天页共用，故新增 `chatCapable`（百智云 false）+
+  `chatProviders` getter，`ChatController.loadConfiguredProviders` 只读可对话服务商，
+  避免把 Cookie 当 API Key 发到 `/v1/models`、`/v1/chat/completions`（核验发现并修复）。
 - **验证**：`flutter analyze` 零 issue；`flutter test` 52 项通过（新增百智云解析、业务码、
   边界拒绝、单位格式化、凭据归一化用例）。真实接口需用户自己的 Cookie，见 `techdebt/TD-009`。

@@ -31,7 +31,7 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: c6e5c02
+last_verified_commit: 1e5030b
 last_verified: 2026-11-24
 ---
 
@@ -58,6 +58,9 @@ last_verified: 2026-11-24
   `startAbility({action:'ohos.want.action.viewData'})` 打开 `https://baizhi.cloud/console/apps`。
   卡片按钮「去签到」（已领取则置灰「今日已签到」），长按菜单也有入口；浏览器里签完回来点卡片
   刷新即可看到 `daily_temporary_credit_claimed` 与临时积分变化。
+- **不进聊天列表**：注册表与对话页共用，故新增 `chatCapable`（百智云 false）+
+  `chatProviders()` 过滤。否则 `ChatView` 会把 `key_baizhi` 里的 Cookie 当 API Key，
+  用 `Authorization: Bearer` 发到 `/v1/models`、`/v1/chat/completions`（核验发现并修复）。
 - **边界校验**：空 Cookie、缺 `baizhi_session` 在本地直接拒绝；粘贴带上的 `Cookie:` 前缀与
   换行由 `normalizeCredential` 归一化；日志对 Cookie 只记长度（`maskCredential`），不落明文。
 - **验证**：`hvigor assembleHap` 通过（clean build）。解析与边界语义由移动端同构实现的单元
