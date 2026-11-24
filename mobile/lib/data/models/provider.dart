@@ -1,7 +1,16 @@
 /// Provider categories surfaced in the add-provider sheet.
 enum ProviderCategory { cnOfficial, aggregator }
 
-enum BalanceQueryType { bearer }
+enum BalanceQueryType {
+  bearer,
+
+  /// Browser cookie session (Baizhi Cloud wallet): the balance endpoint only
+  /// accepts `Cookie`, never an API key, so it needs its own engine branch.
+  cookieSession,
+}
+
+/// How the credential is presented on the wire.
+enum CredentialKind { bearer, cookie }
 
 /// Declarative description of one provider endpoint.
 ///
@@ -20,6 +29,11 @@ class BalanceQueryConfig {
     this.defaultCurrency,
     this.successCodeField,
     this.successCodeValue,
+    this.userAgent,
+    this.temporaryCreditField,
+    this.permanentCreditField,
+    this.frozenCreditField,
+    this.dailyClaimedField,
   });
 
   final String endpoint;
@@ -33,6 +47,17 @@ class BalanceQueryConfig {
   final String? defaultCurrency;
   final String? successCodeField;
   final int? successCodeValue;
+
+  /// Cookie providers must reuse the UA of the browser that produced the
+  /// cookie, otherwise the WAF rejects the request.
+  final String? userAgent;
+
+  /// Credit breakdown fields (Baizhi Cloud wallet). Values share
+  /// [amountMultiplier] with the main balance (cents -> credits).
+  final String? temporaryCreditField;
+  final String? permanentCreditField;
+  final String? frozenCreditField;
+  final String? dailyClaimedField;
 }
 
 class ProviderDefinition {
@@ -49,6 +74,9 @@ class ProviderDefinition {
     this.supportsThinking = false,
     this.chatEndpoint = '/v1/chat/completions',
     this.modelsEndpoint = '/v1/models',
+    this.credentialKind = CredentialKind.bearer,
+    this.credentialRequiredFragment,
+    this.checkinUrl,
   });
 
   final String id;
@@ -62,6 +90,18 @@ class ProviderDefinition {
   final String iconAsset;
   final bool supportsThinking;
 
+  /// Credential shape; defaults to Bearer for every legacy entry.
+  final CredentialKind credentialKind;
+
+  /// Substring the pasted credential must contain (e.g. `baizhi_session`),
+  /// checked locally before any network call.
+  final String? credentialRequiredFragment;
+
+  /// Manual check-in page. Business Rule: the check-in endpoint triggers a
+  /// captcha, so only the user in a browser can complete it — the app just
+  /// opens the page and never signs in on the user's behalf.
+  final String? checkinUrl;
+
   /// Provider-specific OpenAI-compatible chat path.
   ///
   /// Business Rule: never assume every provider lives under `/v1`; OpenRouter
@@ -73,6 +113,21 @@ class ProviderDefinition {
       category == ProviderCategory.cnOfficial ? '国内官方' : 'API聚合';
 }
 
+/// Credit snapshot of a wallet-style provider (Baizhi Cloud).
+class CreditDetail {
+  const CreditDetail({
+    required this.temporary,
+    required this.permanent,
+    required this.frozen,
+    required this.dailyClaimed,
+  });
+
+  final double temporary;
+  final double permanent;
+  final double frozen;
+  final bool dailyClaimed;
+}
+
 class BalanceInfo {
   const BalanceInfo({
     required this.providerId,
@@ -81,6 +136,7 @@ class BalanceInfo {
     required this.available,
     required this.currency,
     required this.updatedAt,
+    this.credit,
   });
 
   final String providerId;
@@ -89,6 +145,7 @@ class BalanceInfo {
   final double available;
   final String currency;
   final String updatedAt;
+  final CreditDetail? credit;
 
   double get usagePercentage {
     if (total <= 0) {
@@ -98,7 +155,42 @@ class BalanceInfo {
   }
 }
 
-String currencySymbol(String currency) => currency == 'CNY' ? '¥' : '\$';
+/// Placeholder currency for credit-style balances, kept distinct from real
+/// currencies so they are never summed into money totals.
+const String creditsUnit = 'CREDITS';
+
+bool isCreditUnit(String currency) => currency == creditsUnit;
+
+String currencySymbol(String currency) {
+  if (currency == 'CNY') {
+    return '¥';
+  }
+  // Credits carry no currency symbol, otherwise ¥/$ would read as real money.
+  if (isCreditUnit(currency)) {
+    return '';
+  }
+  return '\$';
+}
+
+/// Display unit: credits read as 「积分」, currencies echo their code.
+String unitLabel(String currency) => isCreditUnit(currency) ? '积分' : currency;
+
+/// Drops trailing zeros for credit values; keeps 2 decimals only when needed.
+String formatCredit(double value) {
+  final double rounded = (value * 100).round() / 100;
+  if ((rounded - rounded.round()).abs() < 0.005) {
+    return rounded.round().toString();
+  }
+  return rounded.toStringAsFixed(2);
+}
+
+/// Single formatting entry shared by cards and the hero summary.
+String formatAmountText(String currency, double value) {
+  if (isCreditUnit(currency)) {
+    return formatCredit(value);
+  }
+  return value.toStringAsFixed(2);
+}
 
 /// Closed-set registry ported from the HarmonyOS implementation.
 const List<ProviderDefinition> providers = <ProviderDefinition>[
@@ -208,6 +300,38 @@ const List<ProviderDefinition> providers = <ProviderDefinition>[
     websiteUrl: 'https://mimo.mi.com',
     iconAsset: 'assets/providers/mimo.png',
     supportsThinking: true,
+  ),
+  ProviderDefinition(
+    // Baizhi Cloud: wallet endpoint only accepts the browser session cookie
+    // (`baizhi_session`); credits are returned in cents.
+    id: 'baizhi',
+    name: '百智云',
+    baseUrl: 'https://baizhi.cloud',
+    category: ProviderCategory.cnOfficial,
+    balanceType: BalanceQueryType.cookieSession,
+    balanceConfig: BalanceQueryConfig(
+      endpoint: '/api/v1/user/wallet/balance',
+      responsePath: 'data',
+      availableField: 'available_credit_cents',
+      // Cents -> credits (100 cents = 1 credit/yuan).
+      amountMultiplier: 0.01,
+      defaultCurrency: creditsUnit,
+      successCodeField: 'code',
+      successCodeValue: 0,
+      userAgent:
+          'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:160.0) '
+          'Gecko/20100101 Firefox/160.0',
+      temporaryCreditField: 'temporary_credit_cents',
+      permanentCreditField: 'permanent_credit_cents',
+      frozenCreditField: 'frozen_credit_cents',
+      dailyClaimedField: 'daily_temporary_credit_claimed',
+    ),
+    brandColor: '#0FA47F',
+    websiteUrl: 'https://baizhi.cloud',
+    iconAsset: 'assets/providers/baizhi.png',
+    credentialKind: CredentialKind.cookie,
+    credentialRequiredFragment: 'baizhi_session',
+    checkinUrl: 'https://baizhi.cloud/console/apps',
   ),
 ];
 
