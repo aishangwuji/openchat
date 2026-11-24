@@ -13,8 +13,9 @@ import { hilog } from '@kit.PerformanceAnalysisKit';
 import { preferences } from '@kit.ArkData';
 import { common } from '@kit.AbilityKit';
 import {
-  PROVIDERS, ProviderDefinition, ProviderCategory, BalanceInfo,
-  findProvider, currencySymbol, categoryLabel,
+  PROVIDERS, ProviderDefinition, ProviderCategory, BalanceInfo, CreditDetail,
+  CredentialKind, findProvider, currencySymbol, categoryLabel, unitLabel,
+  formatAmountText, formatCredit, isCreditUnit,
 } from '../services/ProviderRegistry';
 import { fetchProviderBalance, ProviderBalanceResult } from '../services/BalanceService';
 import { skinColor } from '../services/SkinService';
@@ -49,6 +50,14 @@ function maskKey(key: string): string {
   return `${k.slice(0, 3)}***${k.slice(-2)}`;
 }
 
+/** Reason: Cookie 是整段登录态，连首尾字符也不该落日志，只记长度。 */
+function maskCredential(def: ProviderDefinition | undefined, raw: string): string {
+  if (def !== undefined && def.credentialKind === CredentialKind.Cookie) {
+    return `***(${raw.trim().length})`;
+  }
+  return maskKey(raw);
+}
+
 function formatToday(): string {
   const d: Date = new Date();
   return `${d.getMonth() + 1}月${d.getDate()}日`;
@@ -64,6 +73,7 @@ struct Assets {
   @State addQuery: string = '';
   @State editTargetId: string = '';
   @State editKeyText: string = '';
+  @State editError: string = '';
   @State showKeyInDialog: boolean = false;
   @State actionTargetId: string = '';
   @State globalSession: number = 0;
@@ -199,8 +209,8 @@ struct Assets {
     this.records[idx].loading = true;
     this.records[idx].error = undefined;
     this.refreshView();
-    hilog.info(DOMAIN, TAG, 'Query %{public}s key=%{public}s',
-      (def as ProviderDefinition).name, maskKey(this.records[idx].apiKey));
+    hilog.info(DOMAIN, TAG, 'Query %{public}s credential=%{public}s',
+      (def as ProviderDefinition).name, maskCredential(def, this.records[idx].apiKey));
     try {
       const res: ProviderBalanceResult = await fetchProviderBalance(id, this.records[idx].apiKey);
       if (sid !== this.globalSession) {
@@ -290,6 +300,7 @@ struct Assets {
     const idx: number = this.recordIndex(id);
     this.editTargetId = id;
     this.editKeyText = idx >= 0 ? this.records[idx].apiKey : '';
+    this.editError = '';
     this.showKeyInDialog = false;
   }
 
@@ -299,13 +310,23 @@ struct Assets {
     if (id.length === 0) {
       return;
     }
+    const def: ProviderDefinition | undefined = findProvider(id);
+    const isCookie: boolean = def !== undefined && def.credentialKind === CredentialKind.Cookie;
     // Business Rule: 边界处强制校验，不合法直接拒绝、不进网络层。
     if (key.length === 0) {
+      this.editError = isCookie ? '请粘贴 Cookie' : '请粘贴 API Key';
       return;
     }
     if (key.length < 4) {
+      this.editError = isCookie ? 'Cookie 太短，请复制完整内容' : 'API Key 至少 4 个字符';
       return;
     }
+    if (def !== undefined && def.credentialRequiredFragment !== undefined &&
+      !key.includes(def.credentialRequiredFragment as string)) {
+      this.editError = `Cookie 需包含 ${def.credentialRequiredFragment}，请从浏览器开发者工具复制完整 Cookie`;
+      return;
+    }
+    this.editError = '';
     const idx: number = this.recordIndex(id);
     if (idx < 0) {
       const rec: ProviderRecord = {
@@ -325,6 +346,7 @@ struct Assets {
   private cancelEditKey(): void {
     this.editTargetId = '';
     this.editKeyText = '';
+    this.editError = '';
   }
 
   private async removeProvider(id: string): Promise<void> {
@@ -436,10 +458,13 @@ struct Assets {
     if (id === 'mimo') {
       return $r('app.media.mimo');
     }
+    if (id === 'baizhi') {
+      return $r('app.media.baizhi');
+    }
     return $r('app.media.deepseek');
   }
 
-  /** Reason: 数据指纹 key，loading/info/error/时间任一变化即视为新条目。 */
+  /** 数据指纹 key，loading/info/error/时间任一变化即视为新条目。 */
   private cardVersionKey(rec: ProviderRecord): string {
     let flag: string = 'N';
     if (rec.loading) {
@@ -450,6 +475,102 @@ struct Assets {
       flag = 'E';
     }
     return `${rec.defId}|${flag}|${rec.updatedAt}`;
+  }
+
+  // ── 百智云 / Cookie 类展示与签到（Reason: @Builder 只能写 UI 语法，取值收敛到普通方法） ──
+
+  private editTargetIsCookie(): boolean {
+    const def: ProviderDefinition | undefined = findProvider(this.editTargetId);
+    return def !== undefined && def.credentialKind === CredentialKind.Cookie;
+  }
+
+  private editCredentialNoun(): string {
+    return this.editTargetIsCookie() ? 'Cookie' : 'Key';
+  }
+
+  private editPlaceholder(): string {
+    return this.editTargetIsCookie() ? '粘贴 Cookie（需含 baizhi_session=...）' : '粘贴 API Key';
+  }
+
+  private editStorageHint(): string {
+    return this.editTargetIsCookie()
+      ? 'Cookie 等同账号登录权限，仅存本地设备，请勿外传'
+      : 'Key 仅存储在本地设备';
+  }
+
+  /** 卡片副标题式明细：临时 / 永久 / 冻结 三项积分。空字符串表示该供应商没有积分明细。 */
+  private creditBreakdown(rec: ProviderRecord): string {
+    const info: BalanceInfo | undefined = rec.info;
+    if (info === undefined) {
+      return '';
+    }
+    const cd: CreditDetail | undefined = (info as BalanceInfo).credit;
+    if (cd === undefined) {
+      return '';
+    }
+    const c: CreditDetail = cd as CreditDetail;
+    return `临时 ${formatCredit(c.temporary)} · 永久 ${formatCredit(c.permanent)} · 冻结 ${formatCredit(c.frozen)}`;
+  }
+
+  private checkinUrlOf(id: string): string {
+    const def: ProviderDefinition | undefined = findProvider(id);
+    if (def === undefined) {
+      return '';
+    }
+    const url: string | undefined = def.checkinUrl;
+    return url !== undefined ? (url as string) : '';
+  }
+
+  private dailyClaimed(rec: ProviderRecord): boolean {
+    const info: BalanceInfo | undefined = rec.info;
+    if (info === undefined) {
+      return false;
+    }
+    const cd: CreditDetail | undefined = (info as BalanceInfo).credit;
+    return cd !== undefined && (cd as CreditDetail).dailyClaimed;
+  }
+
+  private checkinLabel(rec: ProviderRecord): string {
+    return this.dailyClaimed(rec) ? '今日已签到' : '去签到';
+  }
+
+  /**
+   * 打开厂商签到页。
+   * Business Rule: 签到接口会触发验证码，必须由用户在浏览器里完成人机验证，
+   *   应用只负责跳转；返回后由用户点卡片刷新积分（不代签、不绕过验证）。
+   */
+  private async openCheckin(id: string): Promise<void> {
+    const url: string = this.checkinUrlOf(id);
+    if (url.length === 0) {
+      return;
+    }
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await hostCtx.startAbility({
+        action: 'ohos.want.action.viewData',
+        uri: url,
+        entities: ['entity.system.browsable'],
+      });
+      hilog.info(DOMAIN, TAG, 'Checkin page opened');
+    } catch (err) {
+      hilog.warn(DOMAIN, TAG, 'Open checkin failed: %{public}s', String(err));
+      this.getUIContext().showAlertDialog({
+        title: '无法打开签到页',
+        message: '请手动在浏览器访问 https://baizhi.cloud/console/apps 完成签到',
+      });
+    }
+  }
+
+  /** Hero 标题：货币与积分混排时不能说「多币种」。 */
+  private heroMixedLabel(): string {
+    let i: number = 0;
+    while (i < this.heroGroups.length) {
+      if (isCreditUnit(this.heroGroups[i].currency)) {
+        return '多单位组合';
+      }
+      i += 1;
+    }
+    return '多币种组合';
   }
 
   // ── 构建 ──
@@ -678,11 +799,18 @@ struct Assets {
                 this.closeCardActions();
                 this.refreshOne(id);
               })
-              this.ActionRow('键', '更换 Key', '更新本地保存的 API Key', '#80633B', false, () => {
+              this.ActionRow('键', this.actionCredentialLabel(), this.actionCredentialDesc(), '#80633B', false, () => {
                 const id: string = this.actionTargetId;
                 this.closeCardActions();
                 this.onPickProvider(id);
               })
+              if (this.checkinUrlOf(this.actionTargetId).length > 0) {
+                this.ActionRow('签', '去签到', '打开浏览器完成人机验证（应用不代签）', '#0F8A6B', false, () => {
+                  const id: string = this.actionTargetId;
+                  this.closeCardActions();
+                  this.openCheckin(id);
+                })
+              }
               this.ActionRow('删', '移除服务商', '删除卡片与本地保存的 Key', '#A34F44', true, () => {
                 const id: string = this.actionTargetId;
                 this.closeCardActions();
@@ -719,16 +847,16 @@ struct Assets {
         Column() {
           Blank()
           Column() {
-            Text(`设置 ${this.editTargetName()} 的 Key`)
+            Text(`设置 ${this.editTargetName()} 的${this.editCredentialNoun()}`)
               .fontSize(17)
               .fontWeight(FontWeight.Bold)
               .margin({ top: 20, bottom: 4 })
-            Text('Key 仅存储在本地设备')
+            Text(this.editStorageHint())
               .fontSize(13)
               .fontColor(skinColor('accent'))
               .margin({ bottom: 12 })
             Row() {
-              TextInput({ placeholder: '粘贴 API Key', text: this.editKeyText })
+              TextInput({ placeholder: this.editPlaceholder(), text: this.editKeyText })
                 .type(this.showKeyInDialog ? InputType.Normal : InputType.Password)
                 .height(48)
                 .backgroundColor(skinColor('input_bg'))
@@ -750,6 +878,13 @@ struct Assets {
             }
             .width('90%')
             .margin({ bottom: 16 })
+            if (this.editError.length > 0) {
+              Text(this.editError)
+                .fontSize(12)
+                .fontColor(skinColor('danger_text'))
+                .width('90%')
+                .margin({ bottom: 10 })
+            }
             Row() {
               Button('取消')
                 .layoutWeight(1)
@@ -803,15 +938,16 @@ struct Assets {
           .fontColor(skinColor('hero_muted'))
           .width('100%')
       } else if (this.heroGroups.length > 1) {
-        // Reason: 多币种不做跨币种相加（智额仅提示 mixedCurrency），分币种列示避免误导。
-        Text('多币种组合')
+        // Reason: 多币种不做跨币种相加（智额仅提示 mixedCurrency），分币种列示避免误导；
+        //   积分也按同一规则单列，不与人民币混算。
+        Text(this.heroMixedLabel())
           .fontSize(27)
           .fontWeight(FontWeight.Bolder)
           .fontColor(skinColor('hero_accent'))
           .width('100%')
           .margin({ bottom: 8 })
         ForEach(this.heroGroups, (g: CurrencyGroup) => {
-          Text(`可用 ${currencySymbol(g.currency)}${g.available.toFixed(2)} ${g.currency}`)
+          Text(`可用 ${currencySymbol(g.currency)}${formatAmountText(g.currency, g.available)} ${unitLabel(g.currency)}`)
             .fontSize(15)
             .fontWeight(FontWeight.Medium)
             .fontColor(skinColor('hero_text'))
@@ -820,11 +956,11 @@ struct Assets {
         }, (g: CurrencyGroup) => g.currency)
       } else {
         Row() {
-          Text(`${currencySymbol(this.heroGroups[0].currency)}${this.heroGroups[0].available.toFixed(2)}`)
+          Text(`${currencySymbol(this.heroGroups[0].currency)}${formatAmountText(this.heroGroups[0].currency, this.heroGroups[0].available)}`)
             .fontSize(36)
             .fontWeight(FontWeight.Bolder)
             .fontColor(skinColor('hero_accent'))
-          Text(` ${this.heroGroups[0].currency}`)
+          Text(` ${unitLabel(this.heroGroups[0].currency)}`)
             .fontSize(14)
             .fontColor(skinColor('hero_muted'))
         }
@@ -852,10 +988,16 @@ struct Assets {
         .fontColor(skinColor('hero_muted'))
       Blank()
       if (rec.info !== undefined) {
-        Text(`${currencySymbol((rec.info as BalanceInfo).currency)}${(rec.info as BalanceInfo).available.toFixed(2)}`)
+        Text(`${currencySymbol((rec.info as BalanceInfo).currency)}${formatAmountText((rec.info as BalanceInfo).currency, (rec.info as BalanceInfo).available)}`)
           .fontSize(13)
           .fontWeight(FontWeight.Medium)
           .fontColor(skinColor('hero_text'))
+        // Reason: 积分与货币同列时无符号可辨，补一个单位后缀避免误读成金额。
+        if (isCreditUnit((rec.info as BalanceInfo).currency)) {
+          Text(' 积分')
+            .fontSize(11)
+            .fontColor(skinColor('hero_muted'))
+        }
       } else if (rec.loading) {
         Text('查询中…')
           .fontSize(13)
@@ -905,16 +1047,23 @@ struct Assets {
 
       if (rec.info !== undefined) {
         Row() {
-          Text(`${currencySymbol((rec.info as BalanceInfo).currency)}${(rec.info as BalanceInfo).available.toFixed(2)}`)
+          Text(`${currencySymbol((rec.info as BalanceInfo).currency)}${formatAmountText((rec.info as BalanceInfo).currency, (rec.info as BalanceInfo).available)}`)
             .fontSize(22)
             .fontWeight(FontWeight.Bold)
             .fontColor(skinColor('text_title'))
-          Text(` ${(rec.info as BalanceInfo).currency}`)
+          Text(` ${unitLabel((rec.info as BalanceInfo).currency)}`)
             .fontSize(13)
             .fontColor(skinColor('text_muted'))
         }
         .width('100%')
-        .margin({ bottom: 10 })
+        .margin({ bottom: this.creditBreakdown(rec).length > 0 ? 4 : 10 })
+        if (this.creditBreakdown(rec).length > 0) {
+          Text(this.creditBreakdown(rec))
+            .fontSize(12)
+            .fontColor(skinColor('text_muted'))
+            .width('100%')
+            .margin({ bottom: 10 })
+        }
       } else if (rec.error !== undefined) {
         Text(rec.error as string)
           .fontSize(14)
@@ -927,6 +1076,30 @@ struct Assets {
           .fontColor(skinColor('text_faint'))
           .width('100%')
           .margin({ bottom: 10 })
+      }
+
+      // 签到入口（仅配置了 checkinUrl 的供应商）：签到接口触发验证码，只能跳浏览器手动完成。
+      if (this.checkinUrlOf(rec.defId).length > 0) {
+        Row() {
+          Text(this.dailyClaimed(rec)
+            ? '今日已领取每日积分，明天再来'
+            : '签到需在浏览器完成人机验证，完成后回来点卡片刷新')
+            .fontSize(11)
+            .fontColor(skinColor('text_muted'))
+            .layoutWeight(1)
+          Button(this.checkinLabel(rec))
+            .fontSize(13)
+            .height(34)
+            .backgroundColor(this.dailyClaimed(rec) ? skinColor('fill') : skinColor('accent_solid'))
+            .fontColor(this.dailyClaimed(rec) ? skinColor('text_muted') : skinColor('accent_contrast'))
+            .borderRadius(12)
+            .enabled(!this.dailyClaimed(rec))
+            .margin({ left: 8 })
+            .onClick(() => {
+              this.openCheckin(rec.defId);
+            })
+        }
+        .width('100%')
       }
     }
     .width('92%')
@@ -965,6 +1138,17 @@ struct Assets {
       return '';
     }
     return (def as ProviderDefinition).name;
+  }
+
+  private actionCredentialLabel(): string {
+    const def: ProviderDefinition | undefined = findProvider(this.actionTargetId);
+    return def !== undefined && def.credentialKind === CredentialKind.Cookie ? '更新 Cookie' : '更换 Key';
+  }
+
+  private actionCredentialDesc(): string {
+    const def: ProviderDefinition | undefined = findProvider(this.actionTargetId);
+    return def !== undefined && def.credentialKind === CredentialKind.Cookie
+      ? '更新本地保存的浏览器 Cookie' : '更新本地保存的 API Key';
   }
 
   @Builder

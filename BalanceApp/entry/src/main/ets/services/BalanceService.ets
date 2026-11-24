@@ -3,7 +3,8 @@
  *
  * 统一余额查询服务 —— 对齐智额 `providers/adapters/balance_query_service.dart` +
  * `bearer_balance_adapter.dart` 的实现形式（酒馆/SillyTavern 相关除外）：
- * 按 ProviderDefinition.balanceType 路由，按 BalanceQueryConfig 做通用解析。
+ * 按 ProviderDefinition.balanceType 路由（Bearer / CookieSession），
+ * 请求通道与响应解析各抽一层，由 BalanceQueryConfig 做通用解析。
  *
  * Reason: 与参考实现保持一致的错误通道语义：
  *   - throw Error = 瞬时传输失败（网络不可达/超时），调用方可重试并保留上次成功值；
@@ -13,12 +14,15 @@
 import { http } from '@kit.NetworkKit';
 import { hilog } from '@kit.PerformanceAnalysisKit';
 import {
-  ProviderDefinition, BalanceQueryConfig, BalanceInfo, findProvider,
+  ProviderDefinition, BalanceQueryConfig, BalanceInfo, CreditDetail,
+  BalanceQueryType, CredentialKind, findProvider,
 } from './ProviderRegistry';
 
 const DOMAIN = 0x0000;
 const TAG = 'BalanceService';
 const TIMEOUT_MS = 15000;
+/** Cookie 类供应商的兜底 UA（与注册表配置一致，防 WAF 按 UA 拦截）。 */
+const DEFAULT_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:160.0) Gecko/20100101 Firefox/160.0';
 
 export interface ProviderBalanceResult {
   success: boolean;
@@ -98,28 +102,50 @@ function buildUrl(baseUrl: string, endpoint: string): string {
 }
 
 /**
- * 通用 bearer 查询引擎 —— 对齐智额 BearerBalanceAdapter：
- * responsePath 导航 → 对象字段/数组求和/纯数字三种形态 → 换算因子 → used 推导。
+ * 边界归一化：去掉粘贴时混入的 `Cookie:` 前缀与换行。
+ * Reason: 用户常从 DevTools 整行复制「Cookie: a=b; c=d」，直接当请求头的值会发脏数据。
  */
-async function queryBearer(def: ProviderDefinition, apiKey: string): Promise<BalanceInfo> {
-  const config: BalanceQueryConfig = def.balanceConfig;
-  const url: string = buildUrl(def.baseUrl, config.endpoint);
+function normalizeCredential(raw: string, kind: CredentialKind): string {
+  if (kind !== CredentialKind.Cookie) {
+    return raw.trim();
+  }
+  const flat: string = raw.replace(/[\r\n]+/g, ' ').trim();
+  if (flat.toLowerCase().startsWith('cookie:')) {
+    return flat.substring(7).trim();
+  }
+  return flat;
+}
+
+function bearerHeaders(apiKey: string, useBearerPrefix: boolean): Record<string, string> {
+  const authValue: string = useBearerPrefix ? `Bearer ${apiKey}` : apiKey;
+  return {
+    'Authorization': authValue,
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
+  };
+}
+
+function cookieHeaders(cookie: string, userAgent: string): Record<string, string> {
+  // Reason: 百智云按浏览器指纹 + Cookie 做 WAF 校验，UA 必须与取 Cookie 的浏览器一致。
+  return {
+    'Cookie': cookie,
+    'User-Agent': userAgent,
+    'Accept': '*/*',
+  };
+}
+
+/**
+ * 统一 GET 文本通道：把网络异常/鉴权失败/非 2xx 收敛成三种错误通道，
+ * 供 Bearer 与 Cookie 两种引擎复用（解析逻辑不重复）。
+ */
+async function requestText(def: ProviderDefinition, url: string, headers: Record<string, string>): Promise<string> {
   const req: http.HttpRequest = http.createHttp();
   let status: number = 0;
   let bodyText: string = '';
   try {
-    // Business Rule: 仅透传鉴权头与 Accept，不透传 key 到日志。
-    let authValue: string = apiKey;
-    if (config.useBearerPrefix === undefined || (config.useBearerPrefix as boolean)) {
-      authValue = `Bearer ${apiKey}`;
-    }
     const resp: http.HttpResponse = await req.request(url, {
       method: http.RequestMethod.GET,
-      header: {
-        'Authorization': authValue,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
+      header: headers,
       readTimeout: TIMEOUT_MS,
       connectTimeout: TIMEOUT_MS,
       expectDataType: http.HttpDataType.STRING,
@@ -146,7 +172,15 @@ async function queryBearer(def: ProviderDefinition, apiKey: string): Promise<Bal
   if (status < 200 || status >= 300) {
     throw new DeterministicError(`API error (HTTP ${status}): ${bodyText.slice(0, 300)}`);
   }
+  return bodyText;
+}
 
+/**
+ * 通用响应解析引擎 —— 对齐智额 BearerBalanceAdapter：
+ * responsePath 导航 → 对象字段/数组求和/纯数字三种形态 → 换算因子 → used 推导 → 积分明细。
+ */
+function parseBody(def: ProviderDefinition, bodyText: string): BalanceInfo {
+  const config: BalanceQueryConfig = def.balanceConfig;
   let root: ESObject | null = null;
   try {
     const parsed: ESObject = JSON.parse(bodyText);
@@ -158,7 +192,7 @@ async function queryBearer(def: ProviderDefinition, apiKey: string): Promise<Bal
     throw new DeterministicError('Failed to parse response');
   }
 
-  // 业务成功码校验（如 Kimi code!=0 即失败；未配置则跳过，避免误伤它家）。
+  // 业务成功码校验（如 Kimi code!=0 / 百智云会话失效 code!=0；未配置则跳过，避免误伤它家）。
   if (config.successCodeField !== undefined && config.successCodeValue !== undefined) {
     const codeVal: ESObject | null = fieldOf(root, config.successCodeField as string);
     let ok: boolean = false;
@@ -168,6 +202,10 @@ async function queryBearer(def: ProviderDefinition, apiKey: string): Promise<Bal
       ok = (codeVal as string) === String(config.successCodeValue as number);
     }
     if (!ok) {
+      // Reason: Cookie 类失败几乎都是会话过期，直接给可执行的提示，别只抛 JSON 片段。
+      if (def.balanceType === BalanceQueryType.CookieSession) {
+        throw new DeterministicError('登录态失效（Cookie 无效或已过期），请重新从浏览器复制');
+      }
       throw new DeterministicError(`API error (business code): ${bodyText.slice(0, 300)}`);
     }
   }
@@ -209,12 +247,10 @@ async function queryBearer(def: ProviderDefinition, apiKey: string): Promise<Bal
     total = available;
   }
 
-  if (config.amountMultiplier !== undefined) {
-    const m: number = config.amountMultiplier as number;
-    available *= m;
-    total *= m;
-    used *= m;
-  }
+  const multiplier: number = config.amountMultiplier !== undefined ? (config.amountMultiplier as number) : 1.0;
+  available *= multiplier;
+  total *= multiplier;
+  used *= multiplier;
 
   // 对齐智额：used 缺省且 total > available 时推导 used。
   if (config.usedField === undefined && total > 0 && used === 0 && total > available) {
@@ -226,6 +262,20 @@ async function queryBearer(def: ProviderDefinition, apiKey: string): Promise<Bal
     available = total - used;
   }
 
+  // 积分明细（百智云钱包）：与主余额共用同一换算因子，缺字段按 0 处理。
+  let credit: CreditDetail | undefined = undefined;
+  if (config.temporaryCreditField !== undefined && target !== null &&
+    typeof target === 'object' && !Array.isArray(target)) {
+    const claimedVal: ESObject | null =
+      config.dailyClaimedField !== undefined ? fieldOf(target, config.dailyClaimedField as string) : null;
+    credit = {
+      temporary: toNumber(fieldOf(target, config.temporaryCreditField as string)) * multiplier,
+      permanent: toNumber(fieldOf(target, config.permanentCreditField)) * multiplier,
+      frozen: toNumber(fieldOf(target, config.frozenCreditField)) * multiplier,
+      dailyClaimed: claimedVal === true,
+    };
+  }
+
   const finalTotal: number = total > 0 ? total : available + used;
   const info: BalanceInfo = {
     providerId: def.id,
@@ -234,8 +284,27 @@ async function queryBearer(def: ProviderDefinition, apiKey: string): Promise<Bal
     available: available,
     currency: currency,
     updatedAt: new Date().toLocaleString(),
+    credit: credit,
   };
   return info;
+}
+
+/** Bearer 引擎：Authorization 头 + 通用解析。 */
+async function queryBearer(def: ProviderDefinition, apiKey: string): Promise<BalanceInfo> {
+  const config: BalanceQueryConfig = def.balanceConfig;
+  const usePrefix: boolean = config.useBearerPrefix === undefined || (config.useBearerPrefix as boolean);
+  const url: string = buildUrl(def.baseUrl, config.endpoint);
+  const bodyText: string = await requestText(def, url, bearerHeaders(apiKey, usePrefix));
+  return parseBody(def, bodyText);
+}
+
+/** Cookie 引擎：Cookie 头 + 浏览器 UA + 通用解析（百智云钱包）。 */
+async function queryCookieSession(def: ProviderDefinition, cookie: string): Promise<BalanceInfo> {
+  const config: BalanceQueryConfig = def.balanceConfig;
+  const userAgent: string = config.userAgent !== undefined ? (config.userAgent as string) : DEFAULT_UA;
+  const url: string = buildUrl(def.baseUrl, config.endpoint);
+  const bodyText: string = await requestText(def, url, cookieHeaders(cookie, userAgent));
+  return parseBody(def, bodyText);
 }
 
 class AuthFailedError extends Error {
@@ -253,22 +322,42 @@ class DeterministicError extends Error {
 }
 
 /**
- * 查询公开入口：按供应商 id 路由。
- * Business Rule: 边界处先校验（空 key / 未知 id），失败直接返回，不进网络层。
+ * 查询公开入口：按供应商 id 路由到 Bearer / Cookie 引擎。
+ * Business Rule: 边界处先校验（未知 id / 空凭证 / Cookie 缺会话标识），失败直接返回，不进网络层。
  */
-export async function fetchProviderBalance(defId: string, apiKey: string): Promise<ProviderBalanceResult> {
-  const key: string = apiKey.trim();
-  if (key.length === 0) {
-    const r: ProviderBalanceResult = { success: false, info: undefined, error: 'API key is empty' };
-    return r;
-  }
-  const def: ProviderDefinition | undefined = findProvider(defId);
-  if (def === undefined) {
+export async function fetchProviderBalance(defId: string, credential: string): Promise<ProviderBalanceResult> {
+  const found: ProviderDefinition | undefined = findProvider(defId);
+  if (found === undefined) {
     const r: ProviderBalanceResult = { success: false, info: undefined, error: 'Unknown provider' };
     return r;
   }
+  const def: ProviderDefinition = found as ProviderDefinition;
+  const kind: CredentialKind = def.credentialKind !== undefined
+    ? (def.credentialKind as CredentialKind) : CredentialKind.Bearer;
+  const cred: string = normalizeCredential(credential, kind);
+  if (cred.length === 0) {
+    const emptyMsg: string = kind === CredentialKind.Cookie
+      ? 'Cookie 为空，请从浏览器复制完整 Cookie' : 'API key is empty';
+    const r: ProviderBalanceResult = { success: false, info: undefined, error: emptyMsg };
+    return r;
+  }
+  if (kind === CredentialKind.Cookie) {
+    const fragment: string | undefined = def.credentialRequiredFragment;
+    if (fragment !== undefined && !cred.includes(fragment as string)) {
+      const r: ProviderBalanceResult = {
+        success: false, info: undefined,
+        error: `Cookie 缺少 ${fragment}，请确认复制的是登录后的完整 Cookie`,
+      };
+      return r;
+    }
+  }
   try {
-    const info: BalanceInfo = await queryBearer(def as ProviderDefinition, key);
+    let info: BalanceInfo;
+    if (def.balanceType === BalanceQueryType.CookieSession) {
+      info = await queryCookieSession(def, cred);
+    } else {
+      info = await queryBearer(def, cred);
+    }
     const ok: ProviderBalanceResult = { success: true, info: info, error: undefined };
     return ok;
   } catch (err) {
