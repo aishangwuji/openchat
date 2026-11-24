@@ -44,8 +44,8 @@ covered_paths:
   - mobile/test/balance_service_test.dart
   - mobile/test/citation_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 67a08c8
-last_verified: 2026-11-23
+last_verified_commit: 165fe17
+last_verified: 2026-11-24
 ---
 
 # BalanceApp Mobile（Flutter Android/iOS）systemmap
@@ -94,12 +94,16 @@ last_verified: 2026-11-23
 
 ### 余额查询 `BalanceService`
 
-- `fetchProviderBalance(id, key)`：空 key / 未知厂商在边界直接返回 `success:false`；
-  401/403、非 2xx、JSON 结构非法、业务码不符均返回确定性失败；网络异常向上抛，
+- `fetchProviderBalance(id, credential)`：空凭据 / 未知厂商 / Cookie 缺会话标识在边界直接返回
+  `success:false`；401/403、非 2xx、JSON 结构非法、业务码不符均返回确定性失败；网络异常向上抛，
   由 `AssetsController` keep-last-good 并提供重试。
 - `parseBalanceBody` 为纯函数（`@visibleForTesting`）：responsePath 点分导航、
-  数组求和、字段映射、`amountMultiplier`、used/available 对称推导。
-- 端点为 `baseUrl + endpoint`；绝对 URL 直用。
+  数组求和、字段映射、`amountMultiplier`、used/available 对称推导、`CreditDetail` 明细。
+- 端点：`baseUrl + endpoint`；绝对 URL 直用。按 `balanceType` 分 `_queryBearer` /
+  `_queryCookieSession`，请求通道统一走 `_getText`。
+- 百智云（`baizhi`）：Cookie 登录态 + 浏览器 UA，`credential = <Cookie 头原值>`；
+  `normalizeCredential` 去掉粘贴带上的 `Cookie:` 前缀与换行，缺 `baizhi_session` 本地拒绝。
+  详情见下方 2026-11-24 小节。
 
 ### 对话 `ChatService`
 
@@ -290,3 +294,21 @@ last_verified: 2026-11-23
 未跟 demo 的部分（移动端不适用或有代价）：分栏式搜索面板（手机改为底部面板）、
 hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）、继续生成（需 beta 接口
 与 prefix）、会话导入导出（两端都缺，见 TD-004/TD-006）。
+
+## 百智云积分与签到跳转（2026-11-24，analyze/test 通过）
+
+- **新增 Cookie 引擎**：百智云钱包接口只认浏览器会话 Cookie，`BalanceQueryType` 增加
+  `cookieSession`、`CredentialKind` 区分 `bearer`/`cookie`；`BalanceService` 抽出 `_getText`
+  （状态码/网络异常收敛）与 `parseBalanceBody`（通用解析），`_queryBearer` 与
+  `_queryCookieSession` 只负责拼头，两端解析语义一致。
+- **积分口径**：`data.*_credit_cents` 是「分」，`amountMultiplier: 0.01` → 积分；
+  `currency` 用占位符 `CREDITS`，`currencySymbol` 返回空、`unitLabel` 返回「积分」，
+  Hero 按 currency 分组天然隔离，人民币与积分不混算，混排标题为「多单位组合」。
+  卡片展示「临时 / 永久 / 冻结」三项与今日是否已领取。
+- **签到跳转**：签到接口触发验证码，应用不代签，只 `url_launcher` 以外部浏览器打开
+  `https://baizhi.cloud/console/apps`；卡片「去签到」（已领取置灰）+ 长按菜单入口。
+- **凭据存储**：Cookie 与 API Key 一样进 `flutter_secure_storage`（`key_baizhi`），
+  录入弹窗按 `credentialKind` 切换文案与校验（必须含 `baizhi_session`），
+  粘贴带 `Cookie:` 前缀/换行会被 `normalizeCredential` 归一化。
+- **验证**：`flutter analyze` 零 issue；`flutter test` 52 项通过（新增百智云解析、业务码、
+  边界拒绝、单位格式化、凭据归一化用例）。真实接口需用户自己的 Cookie，见 `techdebt/TD-009`。

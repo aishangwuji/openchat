@@ -52,6 +52,12 @@
  （endpoint/responsePath/字段名/换算因子/成功码对照官方文档填）＋图标 png 丢进
   `resources/base/media/` ＋ `Index.providerIcon` 加两行映射；非 Bearer 类需在
   `BalanceService.ets` 按 `balanceType` 加引擎分支（智额有 hmac/aliyunBss 现成逻辑可搬）
+- Cookie 类厂商模板（2026-11-24 百智云落地，两端同构）：`balanceType: CookieSession` +
+  `credentialKind: Cookie` + `credentialRequiredFragment`（本地校验，如 `baizhi_session`）+
+  `userAgent`（与取 Cookie 的浏览器一致，防 WAF）；请求走 `Cookie` 头而非 Authorization，
+  解析复用同一份 `parseBody`，别复制字段映射。积分类金额用占位符币种 `CREDITS`
+  （`unitLabel` 显示「积分」），避免与人民币相加。需要人机验证的写操作（签到）只做跳转，
+  应用不代签。图标由 `scripts/make_baizhi_icon.py` 生成（PIL，两端产物一致）。
 - 错误通道：`throw Error` = 瞬时传输失败（可重试＋keep-last-good）；
   `return {success:false}` = 确定性失败（空Key/未知供应商/401/非2xx/解析失败）
 - 安全红线：Key 只存本机 Preferences（分供应商 `key_<id>`），日志一律 `maskKey`，

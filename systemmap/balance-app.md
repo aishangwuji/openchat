@@ -31,14 +31,38 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: 46f2601
-last_verified: 2026-11-23
+last_verified_commit: c6e5c02
+last_verified: 2026-11-24
 ---
 
 > 前瞻设计：多角色群聊（@ + 记忆隔离）详见 `docs/group-chat-design.md`（原设计中的 Jev 路由已随
 > 上下文净化移除，见下方「已移除」小节）。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
+
+## 百智云积分与签到跳转（2026-11-24，构建通过）
+
+- **为什么要单独一条引擎**：百智云钱包 `GET /api/v1/user/wallet/balance` 只认浏览器会话
+  Cookie（`baizhi_session`，WAF 还要求 UA 与取 Cookie 的浏览器一致），没有 API Key 通道。
+  故 `BalanceQueryType` 增加 `CookieSession`，`BalanceService` 拆三层：`requestText`（GET 通道 +
+  状态码收敛成三通道）、`parseBody`（通用解析）、`queryBearer` / `queryCookieSession`（只拼头）。
+  Bearer 与 Cookie 共用同一份解析，避免两套字段映射漂移。
+- **注册表扩展**：`ProviderDefinition` 新增 `credentialKind` / `credentialRequiredFragment` /
+  `checkinUrl`；`BalanceQueryConfig` 新增 `userAgent` 与四个积分明细字段。加 Cookie 类厂商
+  仍是纯数据（协议本身还是 JSON）。
+- **积分口径**：接口金额单位是「分」，`amountMultiplier: 0.01` 换算成积分（73500 → 735）。
+  币种位用占位符 `CREDITS`：`currencySymbol` 返回空串、`unitLabel` 返回「积分」，
+  Hero 仍按 `currency` 分组，人民币与积分不会相加；两者混排时标题写「多单位组合」。
+  卡片额外展示「临时 / 永久 / 冻结」与今日是否已领取。
+- **签到只能跳转**：签到接口触发验证码，应用不代签，只用
+  `startAbility({action:'ohos.want.action.viewData'})` 打开 `https://baizhi.cloud/console/apps`。
+  卡片按钮「去签到」（已领取则置灰「今日已签到」），长按菜单也有入口；浏览器里签完回来点卡片
+  刷新即可看到 `daily_temporary_credit_claimed` 与临时积分变化。
+- **边界校验**：空 Cookie、缺 `baizhi_session` 在本地直接拒绝；粘贴带上的 `Cookie:` 前缀与
+  换行由 `normalizeCredential` 归一化；日志对 Cookie 只记长度（`maskCredential`），不落明文。
+- **验证**：`hvigor assembleHap` 通过（clean build）。解析与边界语义由移动端同构实现的单元
+  测试覆盖（`mobile/test/balance_service_test.dart`）；真实接口需用户自己的 Cookie，见
+  `techdebt/TD-009`。
 
 ## 阅读链接与用户元信息（2026-11-23，构建通过）
 
