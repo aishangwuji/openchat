@@ -77,6 +77,7 @@ class ProviderDefinition {
     this.credentialKind = CredentialKind.bearer,
     this.credentialRequiredFragment,
     this.checkinUrl,
+    this.chatCapable = true,
   });
 
   final String id;
@@ -101,6 +102,13 @@ class ProviderDefinition {
   /// captcha, so only the user in a browser can complete it — the app just
   /// opens the page and never signs in on the user's behalf.
   final String? checkinUrl;
+
+  /// Whether the provider can serve OpenAI-compatible chat/model calls.
+  ///
+  /// Business Rule: balance-only providers (Baizhi cookie wallet) set this to
+  /// false, otherwise the chat screen would send the session cookie as an API
+  /// key to `/v1/models` and `/v1/chat/completions`.
+  final bool chatCapable;
 
   /// Provider-specific OpenAI-compatible chat path.
   ///
@@ -332,8 +340,18 @@ const List<ProviderDefinition> providers = <ProviderDefinition>[
     credentialKind: CredentialKind.cookie,
     credentialRequiredFragment: 'baizhi_session',
     checkinUrl: 'https://baizhi.cloud/console/apps',
+    // The stored credential is a browser session cookie, not an API key.
+    chatCapable: false,
   ),
 ];
+
+/// Providers that can legitimately serve chat / model-list calls.
+///
+/// Business Rule: balance-only providers (`chatCapable == false`) must never
+/// reach the chat picker, so their cookie never travels to chat endpoints.
+List<ProviderDefinition> get chatProviders => providers
+    .where((ProviderDefinition p) => p.chatCapable)
+    .toList(growable: false);
 
 const List<String> mimoThinkingModels = <String>[
   'mimo-v2.6-flash',

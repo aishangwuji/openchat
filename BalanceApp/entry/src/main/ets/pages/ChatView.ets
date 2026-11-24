@@ -21,7 +21,7 @@ import { ChatStorageService } from '../services/ChatStorageService';
 import { UpdateService, UpdateInfo } from '../services/UpdateService';
 import { AuthService } from '../services/AuthService';
 import { ChatMessageDataSource } from '../services/ChatMessageDataSource';
-import { PROVIDERS, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
+import { chatProviders, ProviderDefinition, findProvider, isThinkingSupported } from '../services/ProviderRegistry';
 import { SearchProgress, WebSearchService } from '../services/WebSearchService';
 import { BaizhiWebSearchService } from '../services/BaizhiWebSearchService';
 import { TtsCallbacks, TtsService } from '../services/TtsService';
@@ -872,13 +872,14 @@ export struct ChatView {
     }
   }
 
-  /** 仅列出本地已配置 API Key 的服务商（未填 Key 的不展示）。 */
+  /** 仅列出本地已配置 API Key 的服务商（未填 Key 的不展示；余额专用供应商不在列）。 */
   private async loadConfiguredProviders(): Promise<void> {
     const out: ProviderDefinition[] = [];
+    const candidates: ProviderDefinition[] = chatProviders();
     if (this.balancePrefs) {
       let i: number = 0;
-      while (i < PROVIDERS.length) {
-        const p: ProviderDefinition = PROVIDERS[i];
+      while (i < candidates.length) {
+        const p: ProviderDefinition = candidates[i];
         i += 1;
         try {
           const kv: preferences.ValueType = await this.balancePrefs.get(`key_${p.id}`, '');

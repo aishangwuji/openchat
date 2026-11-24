@@ -104,6 +104,12 @@ export interface ProviderDefinition {
    *   应用只负责跳转，绝不代签或绕过验证。
    */
   checkinUrl?: string;
+  /**
+   * 是否具备 OpenAI 兼容对话能力（可出现在 ChatView 的服务商列表）；缺省 true。
+   * Business Rule: 纯余额类供应商（如百智云 Cookie 钱包）必须置 false，否则聊天侧会把
+   *   Cookie 当成 API Key 发到 /v1/models、/v1/chat/completions，既发错接口也泄露登录态。
+   */
+  chatCapable?: boolean;
 }
 
 /** 积分明细（百智云钱包的一次快照）。 */
@@ -258,6 +264,8 @@ export const PROVIDERS: ProviderDefinition[] = [
     credentialKind: CredentialKind.Cookie,
     credentialRequiredFragment: 'baizhi_session',
     checkinUrl: 'https://baizhi.cloud/console/apps',
+    // Reason: 这里存的是浏览器 Cookie，不是 API Key，不能进聊天服务商列表。
+    chatCapable: false,
   },
 ];
 
@@ -324,6 +332,23 @@ export function findProvider(id: string): ProviderDefinition | undefined {
     i += 1;
   }
   return undefined;
+}
+
+/**
+ * 仅返回可参与对话的服务商（ChatView 用）。
+ * Business Rule: 余额专用供应商（chatCapable=false）不得出现在聊天服务商列表，
+ *   否则会把余额凭据当 API Key 发往对话接口。
+ */
+export function chatProviders(): ProviderDefinition[] {
+  const out: ProviderDefinition[] = [];
+  let i: number = 0;
+  while (i < PROVIDERS.length) {
+    if (PROVIDERS[i].chatCapable !== false) {
+      out.push(PROVIDERS[i]);
+    }
+    i += 1;
+  }
+  return out;
 }
 
 export function categoryLabel(cat: ProviderCategory): string {

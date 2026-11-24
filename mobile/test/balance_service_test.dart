@@ -75,7 +75,7 @@ void main() {
       final BalanceInfo info = parseBalanceBody(
         provider('baizhi'),
         '{"code":0,"message":"success","data":{'
-        '"user_id":107295191494725,'
+        '"user_id":1,'
         '"temporary_credit_cents":10000,'
         '"permanent_credit_cents":63500,'
         '"frozen_credit_cents":0,'
@@ -181,6 +181,18 @@ void main() {
     test('existing providers stay bearer', () {
       expect(provider('deepseek').credentialKind, CredentialKind.bearer);
       expect(provider('deepseek').checkinUrl, isNull);
+    });
+
+    test('balance-only providers stay out of the chat picker', () {
+      expect(provider('baizhi').chatCapable, false);
+      expect(
+        chatProviders.map((ProviderDefinition p) => p.id),
+        isNot(contains('baizhi')),
+      );
+      expect(
+        chatProviders.map((ProviderDefinition p) => p.id),
+        contains('deepseek'),
+      );
     });
   });
 

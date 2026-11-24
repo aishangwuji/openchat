@@ -627,7 +627,9 @@ class ChatController extends ChangeNotifier {
 
   Future<void> loadConfiguredProviders() async {
     final List<ProviderDefinition> out = <ProviderDefinition>[];
-    for (final ProviderDefinition p in providers) {
+    // Only chat-capable providers: balance-only ones (Baizhi cookie wallet)
+    // store a session cookie that must never be sent to chat endpoints.
+    for (final ProviderDefinition p in chatProviders) {
       final String key = await _keyStore.read(KeyStore.providerKey(p.id));
       if (key.trim().isNotEmpty) {
         out.add(p);
