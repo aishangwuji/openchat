@@ -232,6 +232,14 @@ class _AssistantBubble extends StatelessWidget {
               onImageTap: (String url) => _previewImage(context, url),
             ),
           ),
+        if (message.truncated)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 2),
+            child: Text(
+              '回答达到长度上限，可能不完整',
+              style: TextStyle(fontSize: 12, color: c.textMuted),
+            ),
+          ),
         if (message.searching && message.content.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 6, left: 2),

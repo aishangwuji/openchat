@@ -293,6 +293,8 @@ class ChatMessage {
   String? imageHint;
   String? searchHint;
   bool searching = false;
+  /// 回答是否被长度上限截断（finish_reason=length）；实时字段，不落盘。
+  bool truncated = false;
 
   bool get isUser => role == MessageRole.user;
   bool get isAssistant => role == MessageRole.assistant;

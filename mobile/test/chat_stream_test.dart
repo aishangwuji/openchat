@@ -152,4 +152,15 @@ void main() {
     );
     expect(events.last.done, isTrue);
   });
+
+  test('finish_reason=length 标记为截断', () async {
+    final String body = '${_sse(_chunk(<String, Object?>{
+          'delta': <String, Object?>{'content': '半句'},
+          'finish_reason': 'length',
+        }))}data: [DONE]\n\n';
+
+    final List<ChatStreamEvent> events = await _collect(body);
+
+    expect(events.any((ChatStreamEvent e) => e.truncated), isTrue);
+  });
 }

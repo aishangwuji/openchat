@@ -962,6 +962,10 @@ class ChatController extends ChangeNotifier {
             }
           }
         }
+        // 官方 finish_reason=length：正文被截断（搜索/读链接后上下文用尽也会走到这里）。
+        if (event.truncated) {
+          assistant.truncated = true;
+        }
         // 阅读链接：末块原文（含 signature）随消息持久化，下一轮原样回传。
         if (event.serverToolCallsJson.isNotEmpty) {
           assistant.serverToolCallsJson = event.serverToolCallsJson;

@@ -24,6 +24,7 @@ class ChatStreamEvent {
     this.citations = const <CitationRange>[],
     this.title = '',
     this.refusal = '',
+    this.truncated = false,
     this.serverToolCallsJson = '',
     this.toolCallIndex = -1,
     this.toolCallId = '',
@@ -44,6 +45,8 @@ class ChatStreamEvent {
   final String title;
   /// 内容安全拒答原因（finish_reason=content_filter / delta.refusal）。
   final String refusal;
+  /// 输出是否被长度上限截断（finish_reason=length）。
+  final bool truncated;
   /// 末块 `delta.server_tool_calls` 的原文（含阅读链接的 signature，多轮必须原样回传）。
   final String serverToolCallsJson;
   /// 客户端工具调用分片：index 相同的分片需要累加。
@@ -65,6 +68,7 @@ class ChatStreamEvent {
       citations.isNotEmpty ||
       title.isNotEmpty ||
       refusal.isNotEmpty ||
+      truncated ||
       serverToolCallsJson.isNotEmpty ||
       toolCallIndex >= 0;
 }
@@ -298,6 +302,8 @@ class ChatService {
       if (choice['finish_reason'] == 'content_filter') {
         refusal = '内容未通过安全审核';
       }
+      // 输出达到长度上限（含「搜索/阅读链接后上下文已用尽」）：正文被截断。
+      final bool truncated = choice['finish_reason'] == 'length';
       final Object? deltaRefusal = delta['refusal'];
       if (deltaRefusal is String && deltaRefusal.isNotEmpty) {
         refusal = deltaRefusal;
@@ -339,6 +345,7 @@ class ChatService {
         citations: citations,
         title: title,
         refusal: refusal,
+        truncated: truncated,
         serverToolCallsJson: toolCallsJson,
         toolCallIndex: callIndex,
         toolCallId: callId,
