@@ -366,11 +366,15 @@ class ChatService {
   ///
   /// [reminder] 非空时，每条 user 消息前插一条 `latest_reminder`
   /// （`<date>,<weekday>,<location>,App,<language>`），让模型知道当前日期与所在地。
+  ///
+  /// [replayReasoning] 为 false 时不回传 `reasoning_content`（DeepSeek）：
+  /// 上一轮的思考被带进新一轮会让模型顺着旧计划作答，且空的思考回合必须整体丢弃。
   static List<Map<String, dynamic>> buildApiMessages(
     List<ChatMessage> messages,
     String? systemPrompt,
     bool enableFiles, {
     ChatReminder? reminder,
+    bool replayReasoning = true,
   }) {
     final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
     if (systemPrompt != null && systemPrompt.trim().isNotEmpty) {
@@ -387,7 +391,8 @@ class ChatService {
         continue;
       }
       final String replay = message.content;
-      final String reasoning = message.reasoningContent ?? '';
+      final String reasoning =
+          replayReasoning ? (message.reasoningContent ?? '') : '';
       final bool hasAtts =
           message.isUser && enableFiles && message.attachments.isNotEmpty;
       // 服务端工具调用（阅读链接的 signature）必须随历史原样回传，否则模型读不到旧网页。
@@ -489,6 +494,8 @@ class ChatService {
         options.systemPrompt,
         options.enableFiles && options.providerId == 'deepseek',
         reminder: options.reminder,
+        replayReasoning: options.providerId == 'kimi' ||
+            options.providerId == 'mimo',
       ),
       'stream': isStream,
     };

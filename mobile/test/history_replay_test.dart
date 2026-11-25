@@ -1,4 +1,5 @@
 import 'package:balance_app/data/models/chat_models.dart';
+import 'package:balance_app/data/services/chat_service.dart';
 import 'package:balance_app/state/chat_controller.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -40,5 +41,47 @@ void main() {
 
     expect(replay.content, '文档讲了 A。');
     expect(replay.reasoningContent, '先看目录');
+  });
+
+  /// 官方 Chat Completions 的 assistant 消息只应回传正文与 server_tool_calls；
+  /// DeepSeek 回传 reasoning_content 会把上一轮的计划带进新问题（鸿蒙端实测「串味」）。
+  List<ChatMessage> sampleHistory() => <ChatMessage>[
+        ChatMessage(
+          id: 'u1',
+          role: MessageRole.user,
+          content: '帮我查下今天的新闻',
+          createdAt: 1,
+          status: MessageStatus.success,
+        ),
+        ChatMessage(
+          id: 'a1',
+          role: MessageRole.assistant,
+          content: '',
+          reasoningContent: '先联网检索，再总结',
+          createdAt: 2,
+          status: MessageStatus.success,
+        ),
+      ];
+
+  test('buildApiMessages 不回传 DeepSeek 的 reasoning_content，空的思考回合被丢弃', () {
+    final List<Map<String, dynamic>> wire =
+        ChatService.buildApiMessages(sampleHistory(), null, false, replayReasoning: false);
+
+    expect(wire.length, 1);
+    expect(wire.single['role'], 'user');
+    expect(wire.single.containsKey('reasoning_content'), isFalse);
+  });
+
+  test('Kimi / MiMo 仍然回传 reasoning_content', () {
+    final List<Map<String, dynamic>> wire = ChatService.buildApiMessages(
+      sampleHistory(),
+      null,
+      false,
+      replayReasoning: true,
+    );
+
+    expect(wire.length, 2);
+    expect(wire.last['role'], 'assistant');
+    expect(wire.last['reasoning_content'], '先联网检索，再总结');
   });
 }
