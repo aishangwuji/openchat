@@ -10,6 +10,10 @@ import '../state/settings_controller.dart';
 /// Business Rule: the gate only locks when the app is actually backgrounded
 /// and no authentication sheet is currently in flight. That avoids the
 /// "auth sheet backgrounds the app → lock again" loop.
+///
+/// Unlock method follows the user's choice in Settings:
+/// * `any` — face, fingerprint, or lock-screen password (system dialog).
+/// * `biometric` — no password fallback; the OS picks face or fingerprint.
 class AppLockGate extends StatefulWidget {
   const AppLockGate({super.key, required this.child});
 
@@ -23,6 +27,11 @@ class _AppLockGateState extends State<AppLockGate>
     with WidgetsBindingObserver {
   final AuthService _auth = AuthService();
   bool _authenticating = false;
+
+  /// Selected "biometrics only" but the device has no enrolled biometrics:
+  /// fell back to the full system dialog. Surfaced on the lock overlay so the
+  /// user does not wonder why the password prompt appeared.
+  bool _fallbackNotice = false;
 
   @override
   void initState() {
@@ -43,6 +52,9 @@ class _AppLockGateState extends State<AppLockGate>
     if (state == AppLifecycleState.paused) {
       if (!AuthService.isInProgress && !_authenticating) {
         settings.lock();
+        if (_fallbackNotice) {
+          setState(() => _fallbackNotice = false);
+        }
       }
     } else if (state == AppLifecycleState.resumed) {
       if (settings.appLocked) {
@@ -57,7 +69,16 @@ class _AppLockGateState extends State<AppLockGate>
       return;
     }
     setState(() => _authenticating = true);
-    final bool ok = await _auth.authenticate('解锁 BalanceApp');
+    final bool biometricOnly = settings.appLockAuthMode == appLockAuthBiometric;
+    final bool useBiometric = biometricOnly && await _auth.isBiometricAvailable();
+    if (!mounted) {
+      return;
+    }
+    setState(() => _fallbackNotice = biometricOnly && !useBiometric);
+    final bool ok = await _auth.authenticate(
+      '解锁 BalanceApp',
+      biometricOnly: useBiometric,
+    );
     if (!mounted) {
       return;
     }
@@ -65,6 +86,16 @@ class _AppLockGateState extends State<AppLockGate>
     if (ok) {
       settings.unlock();
     }
+  }
+
+  String _hintFor(SettingsController settings) {
+    if (_fallbackNotice) {
+      return '所选验证方式不可用，已改用系统验证';
+    }
+    if (settings.appLockAuthMode == appLockAuthBiometric) {
+      return '验证指纹或面容后继续';
+    }
+    return '验证锁屏密码、指纹或人脸识别后继续';
   }
 
   @override
@@ -77,6 +108,7 @@ class _AppLockGateState extends State<AppLockGate>
         if (settings.appLocked)
           _LockOverlay(
             authenticating: _authenticating,
+            hint: _hintFor(settings),
             onUnlock: _attemptUnlock,
           ),
       ],
@@ -87,10 +119,12 @@ class _AppLockGateState extends State<AppLockGate>
 class _LockOverlay extends StatelessWidget {
   const _LockOverlay({
     required this.authenticating,
+    required this.hint,
     required this.onUnlock,
   });
 
   final bool authenticating;
+  final String hint;
   final VoidCallback onUnlock;
 
   @override
@@ -125,7 +159,8 @@ class _LockOverlay extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               Text(
-                '验证锁屏密码、指纹或人脸识别后继续',
+                hint,
+                textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 13,
                   height: 1.5,

@@ -147,6 +147,62 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
+  /// 应用锁解锁方式：只分「系统自选」与「仅生物识别」两档。
+  /// Business Rule: local_auth 无法只指定面容或只指定指纹，具体用哪种由系统决定。
+  Future<void> _pickAppLockAuthMode(
+    BuildContext context,
+    SettingsController settings,
+    SettingsStrings s,
+  ) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      builder: (BuildContext ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  s.t('settings_app_lock_method_title'),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: ctx.colors.textTitle,
+                  ),
+                ),
+              ),
+            ),
+            ListTile(
+              title: Text(s.t('settings_app_lock_method_any')),
+              subtitle: Text(s.t('settings_app_lock_method_any_desc')),
+              trailing: settings.appLockAuthMode == appLockAuthAny
+                  ? const Icon(Icons.check_rounded)
+                  : null,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                settings.setAppLockAuthMode(appLockAuthAny);
+              },
+            ),
+            ListTile(
+              title: Text(s.t('settings_app_lock_method_biometric')),
+              subtitle: Text(s.t('settings_app_lock_method_biometric_desc')),
+              trailing: settings.appLockAuthMode == appLockAuthBiometric
+                  ? const Icon(Icons.check_rounded)
+                  : null,
+              onTap: () {
+                Navigator.of(ctx).pop();
+                settings.setAppLockAuthMode(appLockAuthBiometric);
+              },
+            ),
+            const SizedBox(height: 12),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// 手动检查更新：Gitee 优先、GitHub 兜底；只提示不强制。
   Future<void> _pickTtsVoice(
     BuildContext context,
@@ -387,6 +443,15 @@ class SettingsPage extends StatelessWidget {
                           onChanged: settings.setAppLockEnabled,
                         ),
                       ),
+                      if (settings.appLockEnabled)
+                        _SettingsRow(
+                          title: s.t('settings_app_lock_method'),
+                          subtitle: settings.appLockAuthMode == appLockAuthBiometric
+                              ? s.t('settings_app_lock_method_biometric')
+                              : s.t('settings_app_lock_method_any'),
+                          onTap: () =>
+                              _pickAppLockAuthMode(context, settings, s),
+                        ),
                     ],
                   ),
                   _SectionLabel(text: s.t('settings_section_data')),

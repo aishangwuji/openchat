@@ -90,6 +90,32 @@ void main() {
     expect(find.text('应用已锁定'), findsOneWidget);
   });
 
+  testWidgets('app lock falls back to system dialog without biometrics', (
+    WidgetTester tester,
+  ) async {
+    // The test binding has no local_auth plugin, so "biometrics only" cannot
+    // run and the gate must fall back instead of leaving the user locked out.
+    final Bootstrapped boot = await bootstrap(
+      initial: <String, Object>{
+        'app_lock_enabled': true,
+        'app_lock_auth_mode': 'biometric',
+      },
+    );
+    await tester.pumpWidget(
+      BalanceApp(
+        settings: boot.settings,
+        assets: boot.assets,
+        chat: boot.chat,
+      ),
+    );
+    await tester.pump();
+    // Biometric probe has a 1.5s safety timeout when the platform channel is
+    // unavailable, so advance past it before asserting the fallback copy.
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pump();
+    expect(find.text('所选验证方式不可用，已改用系统验证'), findsOneWidget);
+  });
+
   testWidgets('chat page renders empty state and drawer', (
     WidgetTester tester,
   ) async {

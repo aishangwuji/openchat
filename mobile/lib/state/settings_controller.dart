@@ -9,6 +9,12 @@ import '../data/services/preferences_service.dart';
 const String webSearchProviderDeepseek = 'deepseek';
 const String webSearchProviderBaizhi = 'baizhi';
 
+/// 应用锁解锁方式：`any` 允许指纹/面容/密码兜底；`biometric` 仅指纹/面容。
+/// Business Rule: 移动端系统弹窗不暴露「只许面容」「只许指纹」，因此只分两档；
+///   具体用哪种生物识别仍由系统决定。
+const String appLockAuthAny = 'any';
+const String appLockAuthBiometric = 'biometric';
+
 const List<double> fontScaleLevels = <double>[
   0.85,
   0.92,
@@ -36,6 +42,7 @@ class SettingsController extends ChangeNotifier {
   String _language = 'zh-CN';
   bool _appLockEnabled = false;
   bool _appLocked = false;
+  String _appLockAuthMode = appLockAuthAny;
 
   // 工具开关（设置 > 工具）：默认与鸿蒙端一致。
   bool _featureTitle = true;
@@ -60,6 +67,7 @@ class SettingsController extends ChangeNotifier {
   String get language => _language;
   bool get appLockEnabled => _appLockEnabled;
   bool get appLocked => _appLocked;
+  String get appLockAuthMode => _appLockAuthMode;
   bool get featureTitle => _featureTitle;
   bool get featureFiles => _featureFiles;
   bool get featureAsr => _featureAsr;
@@ -105,6 +113,11 @@ class SettingsController extends ChangeNotifier {
     c._language = lang == 'en-US' ? 'en-US' : 'zh-CN';
     c._appLockEnabled =
         prefs.getBool(PreferencesService.keyAppLockEnabled, fallback: false);
+    c._appLockAuthMode =
+        prefs.getString(PreferencesService.keyAppLockAuthMode, fallback: appLockAuthAny) ==
+                appLockAuthBiometric
+            ? appLockAuthBiometric
+            : appLockAuthAny;
     c._appLocked = c._appLockEnabled;
     c._ttsVoice =
         prefs.getString(PreferencesService.keyTtsVoice, fallback: 'stella') == 'tide'
@@ -173,6 +186,17 @@ class SettingsController extends ChangeNotifier {
     }
     notifyListeners();
     await _prefs.setBool(PreferencesService.keyAppLockEnabled, enabled);
+  }
+
+  /// 解锁方式：只影响下次验证；关闭应用锁不清空，重新开启时沿用用户选择。
+  Future<void> setAppLockAuthMode(String mode) async {
+    _appLockAuthMode =
+        mode == appLockAuthBiometric ? appLockAuthBiometric : appLockAuthAny;
+    notifyListeners();
+    await _prefs.setString(
+      PreferencesService.keyAppLockAuthMode,
+      _appLockAuthMode,
+    );
   }
 
   void lock() {

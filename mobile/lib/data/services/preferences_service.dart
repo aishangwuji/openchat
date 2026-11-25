@@ -15,6 +15,8 @@ class PreferencesService {
   static const String keyAutoCollapseThinking = 'auto_collapse_thinking';
   static const String keyAppLanguage = 'app_language';
   static const String keyAppLockEnabled = 'app_lock_enabled';
+  /// 应用锁解锁方式：`any`（指纹/面容/密码由系统决定）| `biometric`（仅指纹/面容）。
+  static const String keyAppLockAuthMode = 'app_lock_auth_mode';
   static const String keyAddedProviderIds = 'added_provider_ids';
   static const String keyActiveSessionId = 'active_session_id';
 

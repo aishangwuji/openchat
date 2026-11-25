@@ -17,13 +17,14 @@ import { I18nService, AppLanguage, SUPPORTED_LANGUAGES, LanguageItem } from '../
 import { UpdateService, UpdateInfo } from '../services/UpdateService';
 import {
   SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_APP_DARK, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
-  KEY_APP_LOCK_ENABLED, KEY_TTS_VOICE, DEFAULT_TTS_VOICE,
+  KEY_APP_LOCK_ENABLED, KEY_APP_LOCK_AUTH_MODE, AppLockAuthMode, KEY_TTS_VOICE, DEFAULT_TTS_VOICE,
   KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS, KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY,
   KEY_FEATURE_READ_URL,
   KEY_USER_LOCATION,
   KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_DEEPSEEK, WEB_SEARCH_PROVIDER_BAIZHI,
   KEY_BAIZHI_IMAGE_READY, KEY_BAIZHI_WEB_READY
 } from '../services/SettingsService';
+import { AuthService } from '../services/AuthService';
 import {
   skinColor, skinList, currentSkinId, findSkin, applySkin, persistSkin, syncDarkMode, SkinDefinition
 } from '../services/SkinService';
@@ -54,6 +55,23 @@ const VOICE_OPTIONS: VoiceOption[] = [
   { key: 'tide', nameKey: 'settings_voice_tide', descKey: 'settings_voice_tide_desc' }
 ];
 
+/** 应用锁解锁方式：值直接落 Preferences，新增枚举时必须同步 SettingsService.normalizeAuthMode。 */
+interface AuthModeOption {
+  key: AppLockAuthMode;
+  nameKey: string;
+  descKey: string;
+}
+
+const AUTH_MODE_OPTIONS: AuthModeOption[] = [
+  { key: 'any', nameKey: 'settings_app_lock_method_any', descKey: 'settings_app_lock_method_any_desc' },
+  { key: 'face', nameKey: 'settings_app_lock_method_face', descKey: 'settings_app_lock_method_face_desc' },
+  {
+    key: 'fingerprint', nameKey: 'settings_app_lock_method_fingerprint',
+    descKey: 'settings_app_lock_method_fingerprint_desc'
+  },
+  { key: 'password', nameKey: 'settings_app_lock_method_password', descKey: 'settings_app_lock_method_password_desc' }
+];
+
 @Entry
 @Component
 struct Settings {
@@ -65,6 +83,7 @@ struct Settings {
   @StorageProp(KEY_AUTO_COLLAPSE_THINKING) autoCollapseThinking: boolean = true;
   @StorageProp(KEY_TTS_VOICE) ttsVoice: string = DEFAULT_TTS_VOICE;
   @StorageProp(KEY_APP_LOCK_ENABLED) appLockEnabled: boolean = false;
+  @StorageProp(KEY_APP_LOCK_AUTH_MODE) authMode: string = 'any';
   /** 当前版本（运行时读 BundleInfo，和 AppScope 同源）。 */
   @State currentVersion: string = UpdateService.currentVersion();
   @State checkingUpdate: boolean = false;
@@ -246,6 +265,39 @@ struct Settings {
       await SettingsService.setAppLockEnabled(hostCtx, enabled);
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'toggleAppLock failed: %{public}s', String(err));
+    }
+  }
+
+  /** AppStorage 里的字符串收窄为合法枚举；脏值回落 any（与 SettingsService 读取口径一致）。 */
+  private selectedAuthMode(): AppLockAuthMode {
+    return SettingsService.isAuthMode(this.authMode) ? this.authMode as AppLockAuthMode : 'any';
+  }
+
+  /**
+   * 选择解锁方式：先确认设备真正支持（凭据已录入），再落盘。
+   * Business Rule: 不允许把应用锁设成设备上不存在的方式，否则下次锁定后无法通过验证。
+   */
+  private async selectAuthMode(mode: AppLockAuthMode): Promise<void> {
+    if (!AuthService.isModeAvailable(mode)) {
+      this.toast(this.t('settings_app_lock_method_unavailable'));
+      return;
+    }
+    if (mode === this.selectedAuthMode()) {
+      return;
+    }
+    try {
+      const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
+      await SettingsService.setAppLockAuthMode(hostCtx, mode);
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'selectAuthMode failed: %{public}s', String(err));
+    }
+  }
+
+  private toast(text: string): void {
+    try {
+      this.getUIContext().getPromptAction().showToast({ message: text });
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'showToast failed: %{public}s', String(err));
     }
   }
 
@@ -1212,7 +1264,60 @@ struct Settings {
         .borderRadius(12)
         .borderWidth(1)
         .borderColor(skinColor('border_card'))
-        .margin({ top: 10, bottom: 24 })
+        .margin({ top: 10, bottom: this.appLockEnabled ? 10 : 24 })
+
+        // 解锁方式：开启应用锁后才需要选；关闭时保留原值，下次开启沿用。
+        if (this.appLockEnabled) {
+          Column() {
+            Text(this.t('settings_app_lock_method'))
+              .fontSize(13)
+              .fontWeight(FontWeight.Medium)
+              .fontColor(skinColor('text_primary'))
+            Text(this.t('settings_app_lock_method_hint'))
+              .fontSize(11)
+              .fontColor(skinColor('text_muted'))
+              .margin({ top: 3 })
+
+            ForEach(AUTH_MODE_OPTIONS, (opt: AuthModeOption) => {
+              Row() {
+                Column() {
+                  Text(this.t(opt.nameKey))
+                    .fontSize(14)
+                    .fontWeight(this.selectedAuthMode() === opt.key ? FontWeight.Medium : FontWeight.Regular)
+                    .fontColor(this.selectedAuthMode() === opt.key ?
+                      skinColor('accent') : skinColor('text_primary'))
+                  Text(this.t(opt.descKey))
+                    .fontSize(11)
+                    .fontColor(skinColor('text_muted'))
+                    .margin({ top: 2 })
+                }
+                .alignItems(HorizontalAlign.Start)
+                .layoutWeight(1)
+
+                if (this.selectedAuthMode() === opt.key) {
+                  Text('✓')
+                    .fontSize(16)
+                    .fontWeight(FontWeight.Bold)
+                    .fontColor(skinColor('accent'))
+                }
+              }
+              .width('100%')
+              .padding({ top: 10, bottom: 10 })
+              .border({ width: { top: 1 }, color: skinColor('fill') })
+              .onClick(() => {
+                this.selectAuthMode(opt.key);
+              })
+            }, (opt: AuthModeOption) => opt.key)
+          }
+          .width('92%')
+          .padding(16)
+          .alignItems(HorizontalAlign.Start)
+          .backgroundColor(skinColor('surface_alt'))
+          .borderRadius(12)
+          .borderWidth(1)
+          .borderColor(skinColor('border_card'))
+          .margin({ bottom: 24 })
+        }
 
         Blank().height(20)
       }

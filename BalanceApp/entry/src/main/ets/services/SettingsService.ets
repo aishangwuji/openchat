@@ -57,6 +57,13 @@ export const KEY_APP_DARK = 'app_dark'; // boolean
 export const KEY_APP_LOCK_ENABLED = 'app_lock_enabled'; // boolean
 /** 当前应用是否处于锁定态；由 EntryAbility 切后台时置 true，认证通过后置 false。 */
 export const KEY_APP_LOCKED = 'app_locked'; // boolean
+/**
+ * 应用锁解锁方式：any（系统自选）/ face（仅人脸）/ fingerprint（仅指纹）/ password（仅锁屏密码）。
+ * Business Rule: 默认 any 保持旧行为（系统弹窗内自选），用户显式选择后才收窄验证方式。
+ */
+export const KEY_APP_LOCK_AUTH_MODE = 'app_lock_auth_mode'; // string
+export type AppLockAuthMode = 'any' | 'face' | 'fingerprint' | 'password';
+export const DEFAULT_APP_LOCK_AUTH_MODE: AppLockAuthMode = 'any';
 
 // 7 档字体缩放系数，第 3 档为标准大小 (1.0)
 export const FONT_SCALE_LEVELS: number[] = [0.85, 0.92, 1.0, 1.08, 1.16, 1.25, 1.35];
@@ -126,8 +133,14 @@ export class SettingsService {
         AppStorage.setOrCreate<boolean>(KEY_APP_LOCKED, false);
       }
 
-      hilog.info(DOMAIN, TAG, 'SettingsService initialized successfully: appearance=%{public}s, fontLevel=%{public}d, autoCollapse=%{public}s, appLock=%{public}s',
-        appearance, fontLevel, String(autoCollapse), String(appLockEnabled));
+      // 4.1 应用锁解锁方式：旧版本无此键，缺失时按默认 any（系统自选）处理。
+      const authModeVal: preferences.ValueType = await SettingsService.prefsInstance.get(
+        KEY_APP_LOCK_AUTH_MODE, DEFAULT_APP_LOCK_AUTH_MODE);
+      const appLockAuthMode: AppLockAuthMode = SettingsService.normalizeAuthMode(authModeVal);
+      AppStorage.setOrCreate<string>(KEY_APP_LOCK_AUTH_MODE, appLockAuthMode);
+
+      hilog.info(DOMAIN, TAG, 'SettingsService initialized successfully: appearance=%{public}s, fontLevel=%{public}d, autoCollapse=%{public}s, appLock=%{public}s, authMode=%{public}s',
+        appearance, fontLevel, String(autoCollapse), String(appLockEnabled), appLockAuthMode);
     } catch (err) {
       hilog.warn(DOMAIN, TAG, 'SettingsService init failed: %{public}s', String(err));
     }
@@ -216,6 +229,44 @@ export class SettingsService {
       await SettingsService.prefsInstance.flush();
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'setFontSizeLevel save failed: %{public}s', String(err));
+    }
+  }
+
+  /**
+   * 判断字符串是否为合法解锁方式。
+   * Reason: 设置页与锁定页都要把 AppStorage 的字符串收窄成枚举，规则只留一份。
+   */
+  public static isAuthMode(value: string): boolean {
+    return value === 'any' || value === 'face' || value === 'fingerprint' || value === 'password';
+  }
+
+  /**
+   * 收窄解锁方式到合法枚举，脏值一律回落 any。
+   * Reason: Preferences 是跨版本持久化数据，升级/手改都可能留下非法字符串。
+   */
+  public static normalizeAuthMode(value: preferences.ValueType): AppLockAuthMode {
+    if (typeof value === 'string' && SettingsService.isAuthMode(value as string)) {
+      return value as AppLockAuthMode;
+    }
+    return DEFAULT_APP_LOCK_AUTH_MODE;
+  }
+
+  /**
+   * 设置应用锁解锁方式并持久化。
+   * Business Rule: 只改下次验证用的方式，不改变当前锁定态；写入前已由设置页确认设备支持该方式。
+   */
+  public static async setAppLockAuthMode(context: common.UIAbilityContext, mode: AppLockAuthMode): Promise<void> {
+    const valid: AppLockAuthMode = SettingsService.normalizeAuthMode(mode);
+    AppStorage.setOrCreate<string>(KEY_APP_LOCK_AUTH_MODE, valid);
+
+    try {
+      if (SettingsService.prefsInstance === undefined) {
+        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
+      }
+      await SettingsService.prefsInstance.put(KEY_APP_LOCK_AUTH_MODE, valid);
+      await SettingsService.prefsInstance.flush();
+    } catch (err) {
+      hilog.error(DOMAIN, TAG, 'setAppLockAuthMode save failed: %{public}s', String(err));
     }
   }
 
