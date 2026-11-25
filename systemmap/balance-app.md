@@ -31,7 +31,7 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: bed7302
+last_verified_commit: 5e7d309
 last_verified: 2026-11-25
 ---
 
@@ -39,6 +39,21 @@ last_verified: 2026-11-25
 > 上下文净化移除，见下方「已移除」小节）。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
+
+## 内容安全拒答提示（2026-11-25，构建通过）
+
+- 按官方《模型内容安全》核对：`safety_check: {level:'high'}` 只在开关开启且服务商为 DeepSeek 时
+  声明；未设置 `tool_choice`（单独使用时只允许 `auto`/`none`），与联网工具可共存。
+- **修复静默拒答**：`onRefusal` 先把消息置为 `error` 并写入文案，紧随其后的 `onComplete`
+  无条件把 `status` 改回 `success`；渲染层只对 `error` 显示错误块，拒答因此变成空白成功消息。
+  现在 `onComplete` 检测到 `status === 'error'` 时只做收尾（保存、结束生成），不改状态、
+  不重复 `finishMarkdown`。
+- **统一文案**：`ChatService.safetyNotice()` 输出「本次对话未通过内容安全审核，回答已拦截。
+  请调整内容后重试」，图片被拦时附服务端 `delta.refusal` 的定位说明；输入 400
+  `Content Exists Risk` 由 `errorNotice()` 映射为同一类提示。拒答时清空正文与思考、
+  保留 `server_tool_calls`，并移除「关闭内容安全后重试」的引导。
+- 审核记录与真机回归项见 `techdebt/TD-011`。
+- 验证：`devecocli build` 通过。
 
 ## 联网搜索文档合规修复（2026-11-25，构建通过）
 

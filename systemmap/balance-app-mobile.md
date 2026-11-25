@@ -45,7 +45,7 @@ covered_paths:
   - mobile/test/citation_test.dart
   - mobile/test/app_lock_auth_mode_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: bed7302
+last_verified_commit: 5e7d309
 last_verified: 2026-11-25
 ---
 
@@ -356,3 +356,15 @@ hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）�
 - **遗留**：图片搜索 `image_url`、来源口径、模型限定 `deepseek-flash`、历史截断丢 signature、
   搜索失败提示，见 `techdebt/TD-010`。
 - 验证：`flutter analyze` 零 issue、`flutter test` 61 项通过；真实 SSE 表现仍需真机回归。
+
+## 内容安全拒答提示（2026-11-25，analyze/test 通过）
+
+- `safety_check: {level:'high'}` 仍只在 DeepSeek + 开关开启时声明；未设置 `tool_choice`
+  （官方：单独使用内容安全时只能是 `auto`/`none`）。
+- 拒答文案不再写死：新增 `safetyNotice()`（通用文案 + 服务端 detail，图片被拦时原样附上）；
+  拒答时清空正文与思考、保留 `server_tool_calls`；移除「可在设置关闭内容安全」的引导
+  （`0f5a860`）。
+- 输入 400 `Content Exists Risk` 映射为同一类安全提示，不再显示状态码 + 原始 JSON。
+- 新增 `test/safety_test.dart`：文案拼接、400 映射、末块 `delta.refusal` 解析。
+- 真机回归项（输入 400 的实际到达方式、流式 `delta.refusal` 形态、图片拦截）见
+  `techdebt/TD-011`。
