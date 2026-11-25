@@ -82,6 +82,8 @@ export interface ChatMessage {
   searchState?: 'searching' | 'done';
   /** 搜索过程提示文案（由 WebSearchService 生成）。实时字段，不持久化。 */
   searchHint?: string;
+  /** 回答是否被长度上限截断（finish_reason=length）。实时字段，不持久化。 */
+  incomplete?: boolean;
   /** 生图任务态：generating=生成中（实时字段）；done/failed 持久化。 */
   imageState?: 'generating' | 'done' | 'failed';
   /** 生成图片 URL（持久化；百智云结果地址有时效，过期后展示占位）。 */

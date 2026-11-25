@@ -33,6 +33,8 @@ const READ_TIMEOUT = 90000;
  */
 const MAX_HISTORY_MESSAGES = 20;
 const MAX_HISTORY_CHARS = 12000;
+/** 非 SSE 响应体（典型为 400 JSON）的保留上限，只用于提取 error.message。 */
+const MAX_ERROR_BODY_CHARS = 8192;
 
 /** Date.getDay() 是 0(周日)~6(周六)；weekday 随语言切换（官方《用户元信息标记》）。 */
 const ZH_WEEKDAYS: string[] = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六'];
@@ -82,6 +84,11 @@ export interface StreamCallbacks {  onToken: (token: string, reasoningChunk?: st
   onToolCalls?: (calls: ToolCallRequest[]) => void;
   /** 内容安全拒答：finish_reason=content_filter 或 delta.refusal 时回调。 */
   onRefusal?: (reason: string) => void;
+  /**
+   * 输出被长度上限截断（finish_reason=length，含搜索/阅读链接后上下文用尽）。
+   * Business Rule: 正文已按部分内容落库，这里只负责让界面提示「可能不完整」。
+   */
+  onIncomplete?: (reason: string) => void;
   /**
    * 服务端工具调用原文（末块 delta.server_tool_calls）。
    * Business Rule: 阅读链接的网页正文加密在 signature 里，调用方必须原样留存并随历史回传，
@@ -153,6 +160,13 @@ export class ChatService {
     let isAborted: boolean = false;
     let textBuffer: string = '';
     let sawDone: boolean = false;
+    // 非 SSE 响应体（400/5xx 的 JSON 错误）与生成中失败（末块 error、无 [DONE]）。
+    let rawBody: string = '';
+    let sawSseData: boolean = false;
+    let streamError: string = '';
+    let incompleteReason: string = '';
+    // 已通过 onError 收尾，避免 err 回调与 dataEnd 重复回调。
+    let settled: boolean = false;
     const decoder: util.TextDecoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
     // 客户端工具调用：arguments 分片到达，按 index 累加，流结束后统一回调。
     const toolAcc: Map<number, ToolCallRequest> = new Map<number, ToolCallRequest>();
@@ -178,6 +192,10 @@ export class ChatService {
         const u8: Uint8Array = new Uint8Array(chunkBuffer);
         const chunkText: string = decoder.decodeWithStream(u8, { stream: true });
         textBuffer += chunkText;
+        // Reason: 400 时服务端返回的是普通 JSON（不是 SSE），必须另存一份原文才能取到 error.message。
+        if (rawBody.length < MAX_ERROR_BODY_CHARS) {
+          rawBody += chunkText;
+        }
 
         const lines: string[] = textBuffer.split('\n');
         // 最后一个元素可能是未截断完整的，留在 buffer 里
@@ -191,6 +209,7 @@ export class ChatService {
           if (!rawLine.startsWith('data:')) {
             continue;
           }
+          sawSseData = true;
           const dataStr: string = rawLine.substring(5).trim();
           // 完成判据只认 data:[DONE]（不对 finish_reason 做完成判断；中断走 err 回调）。
           if (dataStr === '[DONE]') {
@@ -202,6 +221,15 @@ export class ChatService {
             const parsedChunk: ESObject = JSON.parse(dataStr) as ESObject;
             if (parsedChunk !== null && typeof parsedChunk === 'object') {
               const rootRec: Record<string, ESObject> = parsedChunk as Record<string, ESObject>;
+
+              // 生成中失败：官方在最后一个 chunk 带 error、choices 为空、之后没有 [DONE]。
+              const errVal: ESObject = rootRec['error'];
+              if (errVal !== null && errVal !== undefined) {
+                const errText: string = ChatService.errorMessageOf(errVal);
+                if (errText.length > 0) {
+                  streamError = errText;
+                }
+              }
 
               // 终块 usage 形如 {choices:[], usage:{...}}：choices 为空即跳过，
               // 本项目 token 统计已下线，不读取 usage。
@@ -225,6 +253,9 @@ export class ChatService {
                   const finishVal: ESObject = choiceRec['finish_reason'];
                   if (finishVal === 'content_filter') {
                     refusalReason = '内容未通过安全审核';
+                  } else if (finishVal === 'length') {
+                    // 输出达到最大长度；搜索/阅读链接之后上下文用尽也会走这里。
+                    incompleteReason = '回答达到长度上限，可能不完整';
                   }
                   const delta: ESObject = choiceRec['delta'];
                   if (delta !== null && typeof delta === 'object') {
@@ -283,23 +314,39 @@ export class ChatService {
     });
 
     req.on('dataEnd', () => {
-      if (!isAborted) {
-        if (!sawDone) {
-          // 未收到 [DONE] 即关流：按不完整对待，仅打日志，仍以已收 token 落库（调用方已做 keep-partial）。
-          hilog.warn(DOMAIN, TAG, 'Stream ended without [DONE], keep partial content');
+      if (!isAborted && !settled) {
+        // 400 的响应体不是 SSE（官方错误体为 {"error":{"message":...}}），
+        // 上面的 data: 过滤会把它整段丢掉，这里从原文再取一次。
+        if (streamError.length === 0 && !sawSseData) {
+          streamError = ChatService.extractErrorText(rawBody);
         }
-        // 拒答先于 onComplete 回调：调用方清空已展示文本并给拒答提示。
-        if (refusalReason.length > 0 && callbacks.onRefusal !== undefined) {
-          callbacks.onRefusal(refusalReason);
-        }
-        // 工具调用先于 onComplete 回调：调用方可在收尾时统一处理（生图任务）。
-        if (callbacks.onToolCalls !== undefined && toolAcc.size > 0) {
-          const calls: ToolCallRequest[] = ChatService.collectToolCalls(toolAcc);
-          if (calls.length > 0) {
-            callbacks.onToolCalls(calls);
+        if (streamError.length > 0) {
+          settled = true;
+          hilog.error(DOMAIN, TAG, 'stream error: %{public}s', streamError);
+          callbacks.onError(`请求失败：${streamError}`);
+        } else {
+          if (!sawDone) {
+            // 未收到 [DONE] 即关流：按不完整对待，仅打日志，仍以已收 token 落库（调用方已做 keep-partial）。
+            hilog.warn(DOMAIN, TAG, 'Stream ended without [DONE], keep partial content');
           }
+          // 拒答先于 onComplete 回调：调用方清空已展示文本并给拒答提示。
+          if (refusalReason.length > 0 && callbacks.onRefusal !== undefined) {
+            callbacks.onRefusal(refusalReason);
+          }
+          // 工具调用先于 onComplete 回调：调用方可在收尾时统一处理（生图任务）。
+          if (callbacks.onToolCalls !== undefined && toolAcc.size > 0) {
+            const calls: ToolCallRequest[] = ChatService.collectToolCalls(toolAcc);
+            if (calls.length > 0) {
+              callbacks.onToolCalls(calls);
+            }
+          }
+          // 截断提示先于 onComplete：正文照常落库，只多一行状态。
+          if (incompleteReason.length > 0 && callbacks.onIncomplete !== undefined) {
+            callbacks.onIncomplete(incompleteReason);
+          }
+          settled = true;
+          callbacks.onComplete();
         }
-        callbacks.onComplete();
       }
       try {
         req.destroy();
@@ -322,6 +369,7 @@ export class ChatService {
     }, (err: BusinessErrorLike | null | undefined) => {
       if (err) {
         if (!isAborted) {
+          settled = true;
           hilog.error(DOMAIN, TAG, 'Stream request failed: %{public}s', String(err));
           callbacks.onError(`网络请求失败: ${String(err)}`);
         }
@@ -404,6 +452,60 @@ export class ChatService {
     } finally {
       req.destroy();
     }
+  }
+
+  /**
+   * 服务端 error 对象 → 可展示文案：优先 message，其次 code。
+   * Business Rule: 官方错误体是 {"error":{"message":"...","type":...}}；
+   *   400 与非 SSE 错误体共用这一个提取口。
+   */
+  private static errorMessageOf(errVal: ESObject): string {
+    if (errVal === null || errVal === undefined) {
+      return '';
+    }
+    if (typeof errVal === 'string') {
+      return (errVal as string).trim();
+    }
+    if (typeof errVal !== 'object') {
+      return '';
+    }
+    const rec: Record<string, ESObject> = errVal as Record<string, ESObject>;
+    const msgVal: ESObject = rec['message'];
+    if (typeof msgVal === 'string' && (msgVal as string).trim().length > 0) {
+      return (msgVal as string).trim();
+    }
+    const codeVal: ESObject = rec['code'];
+    if (typeof codeVal === 'string' && (codeVal as string).trim().length > 0) {
+      return (codeVal as string).trim();
+    }
+    return '';
+  }
+
+  /**
+   * 从非 SSE 响应体提取错误文案；不是 JSON（或没有 error/message）返回 ''。
+   * Reason: 400 的 Content Exists Risk / 上下文超限 / tools 冲突只在这些响应体里可见，
+   *   不能因为「不是 SSE」就静默当成成功空回答。
+   */
+  private static extractErrorText(rawBody: string): string {
+    const text: string = rawBody.trim();
+    if (text.length === 0 || text.startsWith(':')) {
+      return '';
+    }
+    let parsed: ESObject;
+    try {
+      parsed = JSON.parse(text) as ESObject;
+    } catch (_e) {
+      return '';
+    }
+    if (parsed === null || typeof parsed !== 'object') {
+      return '';
+    }
+    const rec: Record<string, ESObject> = parsed as Record<string, ESObject>;
+    const fromError: string = ChatService.errorMessageOf(rec['error']);
+    if (fromError.length > 0) {
+      return fromError;
+    }
+    return ChatService.errorMessageOf(rec['message']);
   }
 
   /**

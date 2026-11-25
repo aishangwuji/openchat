@@ -2638,6 +2638,12 @@ export struct ChatView {
           this.finishMarkdown(assistantMsg, true);
           this.rebuildSessionReference();
         },
+        onIncomplete: (reason: string) => {
+          // finish_reason=length：正文被截断（搜索/阅读链接后上下文用尽也会走到这里）。
+          // 内容照常保留，只在气泡下方补一行提示；reason 仅用于日志。
+          hilog.info(DOMAIN, TAG, 'incomplete: %{public}s', reason);
+          assistantMsg.incomplete = true;
+        },
         onComplete: () => {
           assistantMsg.status = 'success';
           this.isGenerating = false;
@@ -4865,6 +4871,14 @@ export struct ChatView {
               .padding({ left: 10, right: 10, top: 6, bottom: 6 })
               .backgroundColor(skinColor('danger_fill'))
               .borderRadius(10)
+              .margin({ top: 6 })
+          }
+
+          // 截断提示（finish_reason=length）：正文已保留，只说明它可能不完整。
+          if (msg.incomplete === true) {
+            Text('回答达到长度上限，可能不完整')
+              .fontSize(11)
+              .fontColor(skinColor('text_secondary'))
               .margin({ top: 6 })
           }
 
