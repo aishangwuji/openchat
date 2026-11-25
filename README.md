@@ -30,7 +30,7 @@ Gitee 为主干（`origin`），GitHub 由 Actions 自动镜像（`.github/workf
 - **文件与图片**：Files API 上传（`user_data` / `text_recognition` 分流），图片走视觉通道，附件随消息持久化。
 - **语音**：按住说话录音 → `/v1/tools/asr` 转写回填；回答可朗读（`/v1/tools/tts`，本地音频缓存）。
 - **外观**：浅色 / 深色 / 跟随系统，7 档字号，中英双语。
-- **安全**：应用锁（锁屏密码 / 指纹 / 人脸），切后台即锁定。
+- **安全**：应用锁（解锁方式可选：系统验证 / 人脸 / 指纹 / 锁屏密码），切后台即锁定。
 
 ## 快速开始：编译并装到自己的手机
 
@@ -179,7 +179,7 @@ Assets 页面 → BalanceService → ProviderRegistry 取 endpoint/字段映射
 |---|---|---|
 | 会话、角色卡 | Preferences `chat_sessions` 等 | JSON 明文 |
 | 各厂商 API Key / 百智云 Cookie | Preferences `key_<providerId>` | 明文，见 TD-001 / TD-009 |
-| 外观/字号/语音/应用锁 | Preferences 同名键 | 部分同步到 AppStorage |
+| 外观/字号/语音/应用锁 | Preferences 同名键 | 应用锁含开关与解锁方式，部分同步到 AppStorage |
 | TTS 音频 | `cacheDir/tts_cache` | FNV-1a 键，16 文件/40MB 上限 |
 | 录音、上传副本 | `cacheDir` | 用完即删 |
 
@@ -196,6 +196,7 @@ Assets 页面 → BalanceService → ProviderRegistry 取 endpoint/字段映射
 | `services/TtsService.ets` | `/v1/tools/tts` 朗读 + 本地音频缓存 |
 | `services/UpdateService.ets` | 版本比较、Gitee/GitHub 双源 release 检查、静默节流 |
 | `services/ChatStorageService.ets` | 会话/角色卡持久化与边界校验 |
+| `services/AuthService.ets` | 系统身份认证：应用锁按所选方式（人脸/指纹/密码）收窄凭据类型，不可用时回退 |
 | `services/ProviderRegistry.ets` | 各厂商端点、字段路径、换算因子、凭证形态（加厂商只改这里 + 图标） |
 | `services/BalanceService.ets` | 余额查询引擎：Bearer / CookieSession 两条通道 + 通用解析（积分明细） |
 
@@ -253,7 +254,8 @@ Assets 页面 → BalanceService → ProviderRegistry 取 endpoint/字段映射
 - API Key / 百智云 Cookie 存本机 Preferences（`key_<providerId>`），不上传；日志统一掩码
   （Key 用 `maskKey`，Cookie 只记长度）。
 - 会话、角色卡以 JSON 存本机 Preferences，**是明文**（见 `techdebt/TD-003`）。
-- 应用锁只做本机门禁，不替代系统级加密。
+- 应用锁只做本机门禁，不替代系统级加密；解锁方式（人脸/指纹/密码）只是收窄系统验证，
+  所选凭据在设备上被删除时会回退到系统自选，避免把用户锁在门外。
 - 仓库全历史不包含任何密钥；提交前会扫 `sk-` / `gho_` / 私钥头。
 
 ## 许可证

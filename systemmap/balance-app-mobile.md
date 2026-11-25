@@ -43,8 +43,9 @@ covered_paths:
   - mobile/pubspec.yaml
   - mobile/test/balance_service_test.dart
   - mobile/test/citation_test.dart
+  - mobile/test/app_lock_auth_mode_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 225f412
+last_verified_commit: 0aea2e9
 last_verified: 2026-11-25
 ---
 
@@ -72,7 +73,10 @@ last_verified: 2026-11-25
   不阻塞启动。
 - `AppLockGate`：`WidgetsBindingObserver` 在 `paused` 时调用 `settings.lock()`，
   `resumed` 且仍锁定时自动拉起认证；`AuthService.isInProgress` 防止认证弹窗
-  导致的二次锁定。锁屏成功 `settings.unlock()`。
+  导致的二次锁定。锁屏成功 `settings.unlock()`。解锁方式跟随设置：`any`（指纹/面容/密码，
+  `biometricOnly:false`）或 `biometric`（不允许密码兜底，`biometricOnly:true`）。选
+  `biometric` 但设备无已录入生物识别时，先探活（带 1.5s 超时）再回退系统弹窗，
+  浮层提示「所选验证方式不可用，已改用系统验证」，避免锁死。
 
 ## 数据模型与持久化边界
 
@@ -85,7 +89,7 @@ last_verified: 2026-11-25
   （群聊字段保留以兼容鸿蒙结构，运行时恒为单聊）。
 - `ChatStorageService`：SharedPreferences JSON；所有读入都走 `tryParse`/`_normalizeSession`，
   非法记录丢弃；旧线性数组迁移为单链树并修复悬空引用。
-- `PreferencesService`：非敏感偏好（外观/字号/语言/应用锁开关/topic gate 配置/
+- `PreferencesService`：非敏感偏好（外观/字号/语言/应用锁开关与解锁方式/topic gate 配置/
   已添加厂商 id/活动会话 id）。
 - `KeyStore`：`flutter_secure_storage`，按 `key_<providerId>` 与
   `key_jev_typesafe` / `key_jev_openrouter` 存储；写入前 trim，空值删除。
@@ -139,8 +143,8 @@ last_verified: 2026-11-25
 ## 状态控制器
 
 - `SettingsController`：外观（system/light/dark）、7 档字号、自动折叠思考、语言、
-  应用锁开关与运行态、topic gate 开关/阈值/渠道；所有写操作先 notify 再持久化。
-  持有 KeyStore 读写方法，供设置页与聊天页共用。
+  应用锁开关与运行态、应用锁解锁方式（`any` / `biometric`）、topic gate 开关/阈值/渠道；
+  所有写操作先 notify 再持久化。持有 KeyStore 读写方法，供设置页与聊天页共用。
 - `AssetsController`：厂商记录（key/info/error/loading/updatedAt）、`_session` token、
   `refreshingAll`；`refreshOne` 会复位 `refreshingAll`，避免整轮刷新卡死；
   `reloadKeys` 供 System Two 设置改 Key 后同步。
@@ -163,8 +167,8 @@ last_verified: 2026-11-25
 - `chat_sheets.dart`：模型/厂商选择、会话操作、消息操作、角色与身份管理/绑定。
 - `AssetsPage`：Hero 分币种汇总、厂商卡片、添加弹窗（未添加/已添加 + 搜索）、
   Key 弹窗、长按操作（刷新/换 Key/移除并二次确认）。
-- `SettingsPage`：应用（语言/外观/字号）、个性化、安全（应用锁）、数据（资产监控）、
-  对话（上下文净化入口）、版本。
+- `SettingsPage`：应用（语言/外观/字号）、个性化、安全（应用锁 + 开启后的解锁方式选择：
+  自动 / 仅指纹或面容）、数据（资产监控）、对话（上下文净化入口）、版本。
 - `TopicGatePage`：开关、System One/System Two 双 tab、渠道/Key/阈值、
   服务商 Key（与资产监控共用）。
 - 主题：`AppColors` 语义 token（暖纸/墨/香槟金）与 `AppTheme`；所有页面只读 token。
@@ -181,11 +185,12 @@ last_verified: 2026-11-25
 - 构建网络：本机直连 `storage.googleapis.com` 会 TLS 握手失败，必须设置
   `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`。
 
-## 验证状态（2026-10-23）
+## 验证状态（2026-11-25）
 
 - `flutter analyze`：0 issue。
-- `flutter test`：23 项通过（余额解析/边界、切段/掩码、引用改写、厂商端点、页面冒烟、应用锁浮层、Markdown 气泡）。
-- `flutter build apk --debug`：成功（镜像环境）。
+- `flutter test`：58 项通过（余额解析/边界、切段/掩码、引用改写、厂商端点、页面冒烟、
+  应用锁浮层与解锁方式回退、Markdown 气泡）。
+- `flutter build apk --debug`：成功（镜像环境，2026-11-20）。
 - 运行时：未完成。本机 AVD 的 `system.img` 缺失，且无 Android 真机；iOS 无 macOS。
   详见 `techdebt/TD-004-mobile-release-readiness.md`。
 
@@ -194,6 +199,9 @@ last_verified: 2026-11-25
 - 会话正文明文存储在 SharedPreferences；`isPrivate` 只是 UI 门禁（同鸿蒙 TD-003）。
 - 多语言只覆盖设置页（同鸿蒙现状）。
 - 没有 release 签名、商店图标、隐私政策；应用锁关闭无需二次认证。
+- 应用锁解锁方式只能分「自动 / 仅生物识别」两档：`local_auth` 3.x 的
+  `AuthenticationOptions` 只有 `biometricOnly`，无法像鸿蒙 `UserAuth` 那样只指定人脸或只指定指纹；
+  具体用哪种生物识别由系统弹窗决定。
 - Markdown 由 `gpt_markdown` 渲染，代码高亮/复制为库能力；引用来源列表仍待模型侧提供。
 - 联网搜索（DeepSeek `deepseek_web_search` 服务端工具）、正文引用角标/来源胶囊、语音朗读
   （`/v1/tools/tts` + 朗读音色设置）均尚未对齐：鸿蒙端已在 2026-11-19 接入（`4f5fbd6`、`595db48`），

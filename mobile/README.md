@@ -46,7 +46,7 @@ lib/
     services/                balance, chat SSE, model list, storage, Jev, auth, key store
   state/                     ChangeNotifier controllers (settings / assets / chat)
   ui/
-    app_lock_gate.dart       global lock overlay + lifecycle observer
+    app_lock_gate.dart       global lock overlay + lifecycle observer (method from settings)
     pages/                   chat, assets, settings, topic gate, sheets
     widgets/                 message bubble, thinking toggle, confirm dialog, logos
 ```

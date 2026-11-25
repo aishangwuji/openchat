@@ -31,7 +31,7 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: 225f412
+last_verified_commit: 0aea2e9
 last_verified: 2026-11-25
 ---
 
@@ -425,28 +425,39 @@ last_verified: 2026-11-25
 - 结果：开会话只挂载视口内几条消息，卡顿与「空白等渲染」大幅缓解；
   `TD-002` 第 1 项（LazyForEach）落地，`@Reusable` 实例复用仍待做。
 
-## 应用锁与保密会话（2026-10-19，已落地，构建通过）
+## 应用锁与保密会话（2026-10-19 落地；2026-11-25 解锁方式可配置，构建通过）
 
-- 系统认证封装 `services/AuthService.ets`：`authenticate(title)` 走
-  `@kit.UserAuthenticationKit` 的 `userAuth.getUserAuthInstance`，认证类型
-  **必须同时含 FACE+FINGERPRINT+PIN**，`AuthTrustLevel.ATL2`，challenge 用
-  `cryptoFramework` 随机 16 字节；`inProgress` 静态位供生命周期判断，避免认证弹窗
+- 系统认证封装 `services/AuthService.ets`：`authenticate(title, mode = 'any')` 走
+  `@kit.UserAuthenticationKit` 的 `userAuth.getUserAuthInstance`，`AuthTrustLevel.ATL2`，
+  challenge 用 `cryptoFramework` 随机 16 字节；`inProgress` 静态位供生命周期判断，避免认证弹窗
   引起的切后台重复锁定。权限 `ohos.permission.ACCESS_BIOMETRIC`（system_grant/normal）
   已加 `module.json5`。
+  - `mode=any` 时认证类型**必须同时含 FACE+FINGERPRINT+PIN**；`face` / `fingerprint` /
+    `password` 只下发单一凭据类型，系统弹窗即只给该方式。
+  - `isModeAvailable(mode)` 用 `userAuth.getAvailableStatus(type, ATL2)` 预检：未录入
+    （12500010）、设备不支持（12500005）、密码过期（12500013）都判为不可用。
+  - `effectiveMode(mode)` 在所选方式不可用时回退 `any`。用户可能选完「仅人脸」再在系统设置里
+    删掉人脸，锁定后若仍强行只调人脸会把人永久挡在门外。
   - 坑位（真机实测）：系统 UserAuth 组件**不支持「仅人脸+指纹」组合**，
     `CheckAuthWidgetParam: only face+finger not support` → `start()` 直接返错码 8、
-    弹窗不出现，调用方只会看到「验证未通过」。故必须带 PIN，系统弹窗仍优先引导
+    弹窗不出现，调用方只会看到「验证未通过」。故 `any` 必须带 PIN，系统弹窗仍优先引导
     指纹/人脸，用户可自选。
-- 应用锁：设置页「安全 > 应用锁」开关，`SettingsService.setAppLockEnabled` 持久化到
-  `balance_prefs` 的 `app_lock_enabled`；`app_locked` 为运行态。`EntryAbility.onWindowStageCreate`
-  先 `await SettingsService.init` 再 loadContent（冷启动锁定态在首帧前就绪，避免露内容）；
-  `onBackground` 若开关开启且非认证中则置 `app_locked=true`。
-  `components/AppLockGate.ets`（挂在 Index 的 Stack 顶层）监听 `app_locked`，锁定态
-  全屏 `page_bg` 遮挡并自动拉起认证，成功置 false，失败留在锁屏可重试。
+- 应用锁：设置页「安全 > 应用锁」开关，面板内「解锁方式」四选一——系统验证（推荐，默认）/
+  人脸识别 / 指纹 / 锁屏密码。`SettingsService` 把 `app_lock_enabled` 与 `app_lock_auth_mode`
+  持久化到 `balance_prefs`，`app_locked` 为运行态。选方式前先
+  `AuthService.isModeAvailable`，不可用只 toast 提示、不落盘（避免把应用锁设成设备不存在的方式）。
+  `normalizeAuthMode` 对历史/脏值统一回落 `any`。
+  `EntryAbility.onWindowStageCreate` 先 `await SettingsService.init` 再 loadContent
+  （冷启动锁定态在首帧前就绪，避免露内容）；`onBackground` 若开关开启且非认证中则置
+  `app_locked=true`。`components/AppLockGate.ets`（挂在 Index 的 Stack 顶层）监听 `app_locked`，
+  锁定态全屏 `page_bg` 遮挡并自动拉起认证；说明文案与按钮文案随所选方式变化，
+  `effectiveMode` 发生回退时显示「所选验证方式不可用，已改用系统验证」。成功置 false，
+  失败留在锁屏可重试。
 - 保密会话：`ChatSession.isPrivate`（ChatModels/ChatStorageService normalize 缺省 false）。
   历史抽屉长按菜单新增「保密 / 取消保密」；列表项带锁形图标（`ic_lock.svg`），
   ForEach key 追加 `isPrivate` 指纹。点开保密会话走 `openSessionWithPrivacy`
-  （系统身份认证）；取消保密也需先认证，防止「不打开会话即可解保再打开」的绕过。
+  （系统身份认证，仍用 `authenticate` 默认 `any`，不受应用锁解锁方式影响）；取消保密也需先认证，
+  防止「不打开会话即可解保再打开」的绕过。
   删除当前会话时优先切首个非保密会话，全为保密则新建空白会话。
 - 启动默认新会话 + 草稿会话：`ChatView.aboutToAppear` 不再读取/恢复 `active_session_id`，
   每次重启都进入新会话；但空会话以**草稿**（`draftSession`，不入 `sessions`、不落盘）
