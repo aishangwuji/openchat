@@ -323,7 +323,7 @@ export class ChatService {
         if (streamError.length > 0) {
           settled = true;
           hilog.error(DOMAIN, TAG, 'stream error: %{public}s', streamError);
-          callbacks.onError(`请求失败：${streamError}`);
+          callbacks.onError(ChatService.errorNotice(streamError));
         } else {
           if (!sawDone) {
             // 未收到 [DONE] 即关流：按不完整对待，仅打日志，仍以已收 token 落库（调用方已做 keep-partial）。
@@ -452,6 +452,29 @@ export class ChatService {
     } finally {
       req.destroy();
     }
+  }
+
+  /**
+   * 内容安全拒答 / 输入拦截的统一文案。
+   * Business Rule: 官方不说明拒答的具体原因；图片被拦时 detail 会带
+   *   "The following images were blocked by content moderation: ..."，
+   *   原样附在括号里帮助定位，其余情况只给通用提示。
+   */
+  public static safetyNotice(detail: string): string {
+    const base: string = '本次对话未通过内容安全审核，回答已拦截。请调整内容后重试';
+    const trimmed: string = detail.trim();
+    if (trimmed.length === 0 || trimmed === '内容未通过安全审核') {
+      return base;
+    }
+    return `${base}（${trimmed}）`;
+  }
+
+  /** 400 等错误的用户文案；输入内容审核给安全提示，不直接暴露英文错误码。 */
+  private static errorNotice(errText: string): string {
+    if (errText.indexOf('Content Exists Risk') >= 0) {
+      return '本次对话未通过内容安全审核，请调整内容后重试';
+    }
+    return `请求失败：${errText}`;
   }
 
   /**

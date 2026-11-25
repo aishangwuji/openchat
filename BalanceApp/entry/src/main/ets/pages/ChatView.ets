@@ -2630,11 +2630,15 @@ export struct ChatView {
           assistantMsg.serverToolCallsJson = json;
         },
         onRefusal: (reason: string) => {
-          // 官方要求：拒答时删除已展示的回答，改为拒答文案。
+          // 官方要求：拒答时删除已展示的回答（含思考），改为拒答文案；
+          // server_tool_calls 保留（阅读链接的 signature 下一轮仍可用）。
           assistantMsg.content = '';
           assistantMsg.reasoningContent = undefined;
           assistantMsg.status = 'error';
-          assistantMsg.errorMessage = reason + '（可在「设置 > 工具」关闭内容安全后重试）';
+          assistantMsg.errorMessage = ChatService.safetyNotice(reason);
+          assistantMsg.searchState = undefined;
+          assistantMsg.searchHint = undefined;
+          assistantMsg.incomplete = undefined;
           this.finishMarkdown(assistantMsg, true);
           this.rebuildSessionReference();
         },
@@ -2645,6 +2649,18 @@ export struct ChatView {
           assistantMsg.incomplete = true;
         },
         onComplete: () => {
+          // 内容安全拒答已按 error 收尾：不能把状态改回 success（否则提示被吞掉），
+          // 也不要再重复 finishMarkdown。
+          if (assistantMsg.status === 'error') {
+            this.isGenerating = false;
+            if (titleEnabled) {
+              sess.autoTitled = true;
+            }
+            this.rebuildSessionReference();
+            this.saveState();
+            finish();
+            return;
+          }
           assistantMsg.status = 'success';
           this.isGenerating = false;
           this.finishMarkdown(assistantMsg, false);
