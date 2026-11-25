@@ -1,4 +1,4 @@
-package com.example.openchat
+package com.aishangwuji.openchat
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 
