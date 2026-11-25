@@ -14,6 +14,21 @@ class ChatException implements Exception {
   String toString() => message;
 }
 
+/// 内容安全拒答 / 输入拦截的统一文案。
+///
+/// Business Rule: 官方不说明拒答的具体原因（Chat Completions 的
+/// `finish_reason=content_filter`，流式为末块 `delta.refusal`）；图片被拦时
+/// `refusal` 会带 `The following images were blocked by content moderation: ...`，
+/// 原样附在括号里帮助用户定位，其余情况只给通用提示。
+String safetyNotice(String detail) {
+  const String base = '本次对话未通过内容安全审核，回答已拦截。请调整内容后重试';
+  final String trimmed = detail.trim();
+  if (trimmed.isEmpty || trimmed == '内容未通过安全审核') {
+    return base;
+  }
+  return '$base（$trimmed）';
+}
+
 class ChatStreamEvent {
   const ChatStreamEvent({
     this.content = '',
@@ -221,6 +236,11 @@ class ChatService {
           await client.send(request).timeout(_connectTimeout);
       if (response.statusCode < 200 || response.statusCode >= 300) {
         final String body = await response.stream.bytesToString();
+        // 官方：输入未通过审核时返回 400 Content Exists Risk（输入 token 仍计费）。
+        if (response.statusCode == 400 &&
+            body.contains('Content Exists Risk')) {
+          throw const ChatException('本次对话未通过内容安全审核，请调整内容后重试');
+        }
         throw ChatException(
           '服务商返回状态码 ${response.statusCode}: ${_truncate(body)}',
         );

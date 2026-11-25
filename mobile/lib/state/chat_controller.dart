@@ -979,14 +979,18 @@ class ChatController extends ChangeNotifier {
           session.title = event.title;
         }
         if (event.refusal.isNotEmpty) {
+          // 官方要求：拒答时删除已展示的回答（含思考），改为拒答文案；
+          // server_tool_calls 保留（阅读链接的 signature 下一轮仍可用）。
           assistant
             ..content = ''
+            ..reasoningContent = null
             ..status = MessageStatus.error
-            ..errorMessage = '内容未通过安全审核；可在设置 > 工具中关闭「模型内容安全」后重试。';
+            ..errorMessage = safetyNotice(event.refusal);
           assistant.searching = false;
           notifyListeners();
           return;
-        }        if (event.reasoning.isNotEmpty) {
+        }
+        if (event.reasoning.isNotEmpty) {
           assistant.reasoningContent =
               (assistant.reasoningContent ?? '') + event.reasoning;
           _collapsedReasons.remove(assistant.id);
