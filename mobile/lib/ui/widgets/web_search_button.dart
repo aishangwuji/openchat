@@ -31,21 +31,32 @@ class WebSearchButton extends StatelessWidget {
         onTap: () => onToggle(!enabled),
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 180),
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
           decoration: BoxDecoration(
-            color: enabled ? c.accentSoft : c.fill,
-            borderRadius: BorderRadius.circular(16),
+            color: c.surface,
+            borderRadius: BorderRadius.circular(15),
             border: Border.all(
-              color: enabled ? c.accentOutline : Colors.transparent,
+              color: enabled ? c.accentOutline : c.borderSoft,
             ),
           ),
-          child: Text(
-            '智能搜索',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: enabled ? FontWeight.w500 : FontWeight.w400,
-              color: enabled ? c.accent : c.textSecondary,
-            ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                Icons.travel_explore_rounded,
+                size: 14,
+                color: enabled ? c.accent : c.textSecondary,
+              ),
+              const SizedBox(width: 4),
+              Text(
+                '智能搜索',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: enabled ? FontWeight.w500 : FontWeight.w400,
+                  color: enabled ? c.accent : c.textSecondary,
+                ),
+              ),
+            ],
           ),
         ),
       ),

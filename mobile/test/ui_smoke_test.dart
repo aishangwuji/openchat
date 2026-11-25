@@ -121,8 +121,9 @@ void main() {
   ) async {
     await tester.pumpWidget(await buildApp(home: const ChatPage()));
     await tester.pumpAndSettle();
-    expect(find.text('让想法慢慢展开'), findsOneWidget);
+    // 首屏改为「品牌标记 + 时段问候」，不再有固定标语；断言输入卡片与品牌图存在。
     expect(find.text('输入您的问题...'), findsOneWidget);
+    expect(find.byType(Image), findsWidgets);
 
     await tester.tapAt(const Offset(34, 28));
     await tester.pumpAndSettle();

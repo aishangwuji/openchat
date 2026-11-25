@@ -34,7 +34,6 @@ class _ChatPageState extends State<ChatPage> {
   final TextEditingController _input = TextEditingController();
   final ScrollController _scroll = ScrollController();
   ChatController? _chat;
-  bool _inputExpanded = false;
   bool _showJumpBottom = false;
   final AudioRecorder _recorder = AudioRecorder();
   bool _recording = false;
@@ -51,6 +50,19 @@ class _ChatPageState extends State<ChatPage> {
   int _recordOp = 0;
   DateTime _recordStartedAt = DateTime.now();
   int _lastPathLength = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    // 输入内容变化时切换「语音 / 发送」按钮，并让输入卡高度自适应。
+    _input.addListener(_onInputChanged);
+  }
+
+  void _onInputChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
 
   @override
   void didChangeDependencies() {
@@ -70,6 +82,7 @@ class _ChatPageState extends State<ChatPage> {
     _scroll
       ..removeListener(_onScroll)
       ..dispose();
+    _input.removeListener(_onInputChanged);
     _input.dispose();
     _recordTimer?.cancel();
     _amplitudeSub?.cancel();
@@ -123,7 +136,6 @@ class _ChatPageState extends State<ChatPage> {
     }
     final ChatController chat = context.read<ChatController>();
     _input.clear();
-    setState(() => _inputExpanded = false);
     await chat.sendMessage(text);
     _scrollToBottom();
   }
@@ -153,7 +165,6 @@ class _ChatPageState extends State<ChatPage> {
           children: <Widget>[
             _buildHeader(context, chat),
             if (chat.noticeText.isNotEmpty) _buildNotice(c, chat),
-            Divider(color: c.borderSoft, height: 1),
             Expanded(
               child: Stack(
                 children: <Widget>[
@@ -208,93 +219,73 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  /// 顶栏参考官方：左侧菜单、右侧模型选择，只有已有消息时才显示会话标题。
   Widget _buildHeader(BuildContext context, ChatController chat) {
     final AppColors c = context.colors;
+    final bool hasModel =
+        chat.currentModelId.isNotEmpty && chat.currentModelId != '选择模型';
+    final bool hasMessages = chat.activePath.isNotEmpty;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      padding: const EdgeInsets.fromLTRB(8, 4, 8, 4),
       child: Row(
         children: <Widget>[
           InkWell(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(20),
             onTap: () => _scaffoldKey.currentState?.openDrawer(),
-            child: Container(
-              width: 36,
-              height: 36,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: c.fill,
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  _bar(c.textPrimary),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: _bar(c.textPrimary),
-                  ),
-                  _bar(c.textPrimary),
-                ],
+            child: SizedBox(
+              width: 40,
+              height: 40,
+              child: Icon(
+                Icons.menu_rounded,
+                size: 24,
+                color: c.textPrimary,
               ),
             ),
           ),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 10),
-              child: Column(
-                children: <Widget>[
-                  Text(
-                    chat.sessionTitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: c.textTitle,
+            child: hasMessages
+                ? Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    child: Text(
+                      chat.sessionTitle,
+                      maxLines: 1,
+                      textAlign: TextAlign.center,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w600,
+                        color: c.textTitle,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    chat.providerName,
-                    style: TextStyle(fontSize: 10, color: c.textMuted),
-                  ),
-                ],
-              ),
-            ),
+                  )
+                : const SizedBox.shrink(),
           ),
           InkWell(
             borderRadius: BorderRadius.circular(16),
             onTap: () => showModelPicker(context),
             child: Container(
-              padding:
-                  const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
-              decoration: BoxDecoration(
-                color: c.accentSoft,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: c.accentOutline),
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
               constraints: const BoxConstraints(maxWidth: 150),
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: <Widget>[
                   Flexible(
                     child: Text(
-                      chat.currentModelId.isEmpty
-                          ? '选择模型'
-                          : chat.currentModelId,
+                      hasModel ? chat.currentModelId : '选择模型',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 12.5,
                         fontWeight: FontWeight.w500,
-                        color: c.accent,
+                        color: hasModel ? c.textSecondary : c.accent,
                       ),
                     ),
                   ),
-                  const SizedBox(width: 4),
-                  Text(
-                    '选模型',
-                    style: TextStyle(fontSize: 10, color: c.textMuted),
+                  const SizedBox(width: 2),
+                  Icon(
+                    Icons.keyboard_arrow_down_rounded,
+                    size: 16,
+                    color: c.textMuted,
                   ),
                 ],
               ),
@@ -304,12 +295,6 @@ class _ChatPageState extends State<ChatPage> {
       ),
     );
   }
-
-  Widget _bar(Color color) => Container(
-        width: 16,
-        height: 2,
-        color: color,
-      );
 
   Widget _buildNotice(AppColors c, ChatController chat) {
     return Padding(
@@ -334,43 +319,39 @@ class _ChatPageState extends State<ChatPage> {
     );
   }
 
+  /// 首屏问候：参考官方首页——品牌标记 + 一句话，不放标语/副标题。
+  String _greeting() {
+    final int hour = DateTime.now().hour;
+    if (hour < 6) {
+      return '夜深了，想聊点什么？';
+    }
+    if (hour < 12) {
+      return '早上好，今天想做点什么？';
+    }
+    if (hour < 18) {
+      return '下午好，今天想做点什么？';
+    }
+    return '晚上好，今天想做点什么？';
+  }
+
   Widget _buildEmptyState(AppColors c) {
-    return Center(
+    return Align(
+      alignment: const Alignment(0, -0.28),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: <Widget>[
-          Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              Container(width: 24, height: 1, color: c.accent),
-              Text(
-                '  BALANCE  /  AI',
-                style: TextStyle(
-                  fontSize: 10,
-                  letterSpacing: 1.2,
-                  fontWeight: FontWeight.w500,
-                  color: c.accent,
-                ),
-              ),
-              Container(width: 24, height: 1, color: c.accent),
-            ],
+          Image.asset(
+            'assets/providers/deepseek.png',
+            width: 44,
+            height: 44,
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 18),
           Text(
-            '让想法慢慢展开',
+            _greeting(),
             style: TextStyle(
-              fontSize: 27,
-              fontWeight: FontWeight.w500,
+              fontSize: 16.5,
+              fontWeight: FontWeight.w600,
               color: c.textTitle,
-            ),
-          ),
-          const SizedBox(height: 9),
-          Text(
-            '从一个问题开始，开启一段清晰的对话。',
-            style: TextStyle(
-              fontSize: 14,
-              height: 1.64,
-              color: c.textMuted,
             ),
           ),
         ],
@@ -607,220 +588,192 @@ class _ChatPageState extends State<ChatPage> {
     }
     await chat.uploadPendingAttachment(fileName: fileName, bytes: bytes);
   }
+  /// 输入区内联小图标按钮：统一 40×44 点击区、22 图标、无多余底色。
+  Widget _composerButton({
+    required IconData icon,
+    required String tooltip,
+    required Color color,
+    VoidCallback? onTap,
+    bool busy = false,
+  }) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: onTap,
+      padding: EdgeInsets.zero,
+      visualDensity: VisualDensity.compact,
+      constraints: const BoxConstraints(minWidth: 40, minHeight: 44),
+      icon: busy
+          ? const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            )
+          : Icon(icon, size: 22, color: color),
+    );
+  }
+
   Widget _buildInputArea(BuildContext context, ChatController chat) {
     final AppColors c = context.colors;
-    return Container(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
-      decoration: BoxDecoration(
-        color: c.surface,
-        border: Border(top: BorderSide(color: c.borderSoft)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          if (chat.pendingAttachments.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: <Widget>[
-                  for (final MessageAttachment att in chat.pendingAttachments)
-                    InputChip(
-                      label:
-                          Text(att.fileName, style: const TextStyle(fontSize: 12)),
-                      onDeleted: () => chat.removePendingAttachment(att.fileId),
-                      visualDensity: VisualDensity.compact,
+    // Edge-to-edge 下底部手势条会盖住内容：SafeArea(bottom:false) 之后，
+    // 由输入卡片自己补 viewPadding。键盘弹出时底部 inset 已被键盘占据，不再叠加。
+    final MediaQueryData mq = MediaQuery.of(context);
+    final double bottomInset =
+        mq.viewInsets.bottom > 0 ? 0 : mq.viewPadding.bottom;
+    final bool hasText = _input.text.trim().isNotEmpty;
+    return Padding(
+      padding: EdgeInsets.fromLTRB(12, 6, 12, 8 + bottomInset),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(14, 12, 12, 10),
+        decoration: BoxDecoration(
+          color: c.surface,
+          borderRadius: BorderRadius.circular(24),
+          border: Border.all(color: c.borderSoft),
+          boxShadow: <BoxShadow>[
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.04),
+              blurRadius: 18,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            if (chat.pendingAttachments.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: <Widget>[
+                    for (final MessageAttachment att in chat.pendingAttachments)
+                      InputChip(
+                        label: Text(
+                          att.fileName,
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                        onDeleted: () =>
+                            chat.removePendingAttachment(att.fileId),
+                        visualDensity: VisualDensity.compact,
+                      ),
+                  ],
+                ),
+              ),
+            if (_recording)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _RecordStatusBar(
+                  seconds: _recordSeconds,
+                  level: _recordLevel,
+                  onCancel: () => _finishRecording(chat, cancel: true),
+                ),
+              ),
+            if (_transcribing)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _TranscribingBar(
+                  onCancel: () {
+                    _recordOp++;
+                    setState(() => _transcribing = false);
+                  },
+                ),
+              ),
+            TextField(
+              controller: _input,
+              minLines: 2,
+              maxLines: 6,
+              keyboardType: TextInputType.multiline,
+              textInputAction: TextInputAction.newline,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.5,
+                color: c.textPrimary,
+              ),
+              decoration: InputDecoration(
+                hintText: '输入您的问题...',
+                hintStyle: TextStyle(
+                  fontSize: 14,
+                  color: c.textFaint,
+                ),
+                isDense: true,
+                filled: false,
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                contentPadding: const EdgeInsets.symmetric(vertical: 6),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: <Widget>[
+                ThinkingButton(
+                  enabled: chat.enableThinking,
+                  providerId: chat.currentProviderId,
+                  modelId: chat.currentModelId,
+                  onToggle: chat.setEnableThinking,
+                ),
+                const SizedBox(width: 6),
+                WebSearchButton(
+                  enabled: chat.enableWebSearch,
+                  providerId: chat.currentProviderId,
+                  onToggle: chat.setEnableWebSearch,
+                ),
+                const Spacer(),
+                _composerButton(
+                  icon: Icons.add_rounded,
+                  tooltip: '添加文件或图片',
+                  color: c.textPrimary,
+                  busy: chat.attachmentBusy,
+                  onTap: chat.attachmentBusy
+                      ? null
+                      : () => _pickAttachment(context, chat),
+                ),
+                if (chat.isGenerating)
+                  _composerButton(
+                    icon: Icons.stop_rounded,
+                    tooltip: '停止生成',
+                    color: c.dangerText,
+                    onTap: chat.stopGenerating,
+                  )
+                else if (hasText)
+                  SizedBox(
+                    width: 36,
+                    height: 36,
+                    child: ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        shape: const CircleBorder(),
+                        elevation: 0,
+                        padding: EdgeInsets.zero,
+                      ),
+                      onPressed: _send,
+                      child: const Icon(
+                        Icons.arrow_upward_rounded,
+                        size: 18,
+                      ),
                     ),
-                ],
-              ),
-            ),
-          if (_recording)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _RecordStatusBar(
-                seconds: _recordSeconds,
-                level: _recordLevel,
-                onCancel: () => _finishRecording(chat, cancel: true),
-              ),
-            ),
-          if (_transcribing)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 10),
-              child: _TranscribingBar(
-                onCancel: () {
-                  _recordOp++;
-                  setState(() => _transcribing = false);
-                },
-              ),
-            ),
-          Row(
-            crossAxisAlignment: _inputExpanded
-                ? CrossAxisAlignment.end
-                : CrossAxisAlignment.center,
-            children: <Widget>[
-              if (chat.featureAsr)
-                Padding(
-                  padding: const EdgeInsets.only(right: 4, bottom: 6),
-                  child: IconButton(
+                  )
+                else if (chat.featureAsr)
+                  _composerButton(
+                    icon: _recording
+                        ? Icons.stop_circle_outlined
+                        : _transcribing
+                            ? Icons.close_rounded
+                            : Icons.graphic_eq_rounded,
                     tooltip: _recording
                         ? '停止录音'
                         : _transcribing
                             ? '取消识别'
                             : '语音输入',
-                    onPressed: _recordBusy && !_transcribing
+                    color: _recording ? c.dangerText : c.textPrimary,
+                    busy: _recordBusy && !_transcribing,
+                    onTap: _recordBusy && !_transcribing
                         ? null
                         : () => _toggleRecord(chat),
-                    icon: _recordBusy
-                        ? const SizedBox(
-                            width: 18,
-                            height: 18,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : Icon(
-                            _recording
-                                ? Icons.stop_circle_outlined
-                                : Icons.mic_none_rounded,
-                            color: _recording ? c.dangerText : c.accent,
-                          ),
                   ),
-                ),              if (chat.attachmentBusy)
-                const Padding(
-                  padding: EdgeInsets.only(right: 8, bottom: 12),
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  ),
-                )
-              else
-                Padding(
-                  padding: const EdgeInsets.only(right: 8, bottom: 6),
-                  child: IconButton(
-                    tooltip: '添加文件或图片',
-                    onPressed: () => _pickAttachment(context, chat),
-                    icon: Icon(Icons.add_circle_outline_rounded, color: c.accent),
-                  ),
-                ),
-              Expanded(
-                child: Stack(
-                  alignment: Alignment.bottomRight,
-                  children: <Widget>[
-                    TextField(
-                      controller: _input,
-                      minLines: _inputExpanded ? 4 : 2,
-                      maxLines: _inputExpanded ? 10 : 2,
-                      keyboardType: TextInputType.multiline,
-                      textInputAction: TextInputAction.newline,
-                      style: TextStyle(
-                        fontSize: 15,
-                        height: 1.5,
-                        color: c.textPrimary,
-                      ),
-                      decoration: InputDecoration(
-                        hintText: '输入您的问题...',
-                        contentPadding: const EdgeInsets.fromLTRB(
-                          16,
-                          12,
-                          46,
-                          12,
-                        ),
-                        border: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(_inputExpanded ? 20 : 24),
-                          borderSide: BorderSide(color: c.borderCard),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(_inputExpanded ? 20 : 24),
-                          borderSide: BorderSide(color: c.borderCard),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius:
-                              BorderRadius.circular(_inputExpanded ? 20 : 24),
-                          borderSide: BorderSide(color: c.accentOutline),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.only(right: 10, bottom: 10),
-                      child: InkWell(
-                        borderRadius: BorderRadius.circular(13),
-                        onTap: () =>
-                            setState(() => _inputExpanded = !_inputExpanded),
-                        child: Container(
-                          width: 26,
-                          height: 26,
-                          alignment: Alignment.center,
-                          decoration: BoxDecoration(
-                            color: c.iconTile,
-                            borderRadius: BorderRadius.circular(13),
-                            border: Border.all(color: c.accentOutline),
-                          ),
-                          child: Icon(
-                            _inputExpanded
-                                ? Icons.close_fullscreen_rounded
-                                : Icons.open_in_full_rounded,
-                            size: 14,
-                            color: c.accent,
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              if (chat.isGenerating)
-                SizedBox(
-                  width: 60,
-                  height: 48,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: c.dangerText,
-                      foregroundColor: Colors.white,
-                      padding: EdgeInsets.zero,
-                    ),
-                    onPressed: chat.stopGenerating,
-                    child: const Text(
-                      '停止',
-                      style: TextStyle(fontSize: 12),
-                    ),
-                  ),
-                )
-              else
-                SizedBox(
-                  width: 48,
-                  height: 48,
-                  child: ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      shape: const CircleBorder(),
-                      padding: EdgeInsets.zero,
-                    ),
-                    onPressed: _send,
-                    child: const Icon(Icons.arrow_upward_rounded, size: 21),
-                  ),
-                ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          Row(
-            children: <Widget>[
-              ThinkingButton(
-                enabled: chat.enableThinking,
-                providerId: chat.currentProviderId,
-                modelId: chat.currentModelId,
-                onToggle: chat.setEnableThinking,
-              ),
-              const SizedBox(width: 8),
-              WebSearchButton(
-                enabled: chat.enableWebSearch,
-                providerId: chat.currentProviderId,
-                onToggle: chat.setEnableWebSearch,
-              ),
-            ],
-          ),
-        ],
+              ],
+            ),
+          ],
+        ),
       ),
     );
   }
