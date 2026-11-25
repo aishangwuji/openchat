@@ -31,7 +31,7 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: 0aea2e9
+last_verified_commit: bed7302
 last_verified: 2026-11-25
 ---
 
@@ -39,6 +39,23 @@ last_verified: 2026-11-25
 > 上下文净化移除，见下方「已移除」小节）。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
+
+## 联网搜索文档合规修复（2026-11-25，构建通过）
+
+- **背景**：按官方《联网工具》Chat Completions 章节逐条核对（审核记录见 `techdebt/TD-010`），
+  请求构造、`server_tool_event`、`annotations`、`server_tool_calls` 的解析与回传与文档一致；
+  问题集中在「错误与结束原因」这条路径。
+- **400 不再静默**：输入内容审核、上下文超限、tools 冲突等返回 HTTP 400 + `{"error":{"message":...}}`，
+  且响应体不是 SSE。原先 `data:` 过滤会把它整段丢掉，`dataEnd` 后按成功空回答收尾。
+  现在保留响应原文（≤8KB），非 SSE 时提取 `error.message`/`code` 并走 `onError`。
+- **生成中失败**（末块带 `error`、`choices` 为空、无 `[DONE]`）同样提取文案走 `onError`；
+  `settled` 标记防止 err 回调与 `dataEnd` 重复收尾。
+- **截断提示**：`finish_reason=length`（含搜索/阅读链接后上下文用尽）通过新增的
+  `StreamCallbacks.onIncomplete` 交给页面，气泡下方显示「回答达到长度上限，可能不完整」，
+  正文照常保留落库（`ChatMessage.incomplete` 为实时字段，不持久化）。
+- **遗留**：图片搜索 `image_url`、来源数与 `citations` 口径、模型限定 `deepseek-flash`、
+  历史截断丢 signature、搜索失败提示偏乐观，均记在 `TD-010`，本轮未改。
+- 验证：`devecocli build` 通过（8m30s，仅有既有 ArkTS 告警）。
 
 ## 生图工具改为声明式：模型自判，不再用关键词表（2026-11-25，构建通过）
 

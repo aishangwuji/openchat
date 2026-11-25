@@ -45,7 +45,7 @@ covered_paths:
   - mobile/test/citation_test.dart
   - mobile/test/app_lock_auth_mode_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 0aea2e9
+last_verified_commit: bed7302
 last_verified: 2026-11-25
 ---
 
@@ -276,6 +276,11 @@ last_verified: 2026-11-25
 已知边界：`flutter analyze` 零 issue、`flutter test` 30 项通过；本机无真机/模拟器，
 阅读链接、reminder 的真实接口表现仍需真机回归（`techdebt/TD-007`、`TD-004`）。
 
+> **2026-11-25 更正**：上面第 3 条在运行时不成立——`streamChat` 的 `hasPayload` 只认正文/思考，
+> `server_tool_event`、`annotations`、`server_tool_calls` 都在 `_parseChunk` 之后被过滤丢弃，
+> 进度/来源/引用/服务端标题/拒答与 signature 均未到达 UI，多轮 signature 回传实际失效。
+> 已修复（`8125727`），详见 `techdebt/TD-010` 与下方「联网搜索文档合规修复」小节。
+
 ## 对话页对齐官方 chat-demo（2026-11-23，analyze/test 通过）
 
 参考 <https://github.com/deepseek-ai/chat-demo>（React 端侧 demo）重做四处移动端体验，
@@ -331,3 +336,23 @@ hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）�
   避免把 Cookie 当 API Key 发到 `/v1/models`、`/v1/chat/completions`（核验发现并修复）。
 - **验证**：`flutter analyze` 零 issue；`flutter test` 52 项通过（新增百智云解析、业务码、
   边界拒绝、单位格式化、凭据归一化用例）。真实接口需用户自己的 Cookie，见 `techdebt/TD-009`。
+
+## 联网搜索文档合规修复（2026-11-25，analyze/test 通过）
+
+- **P0：流式工具事件被整体丢弃**。`ChatService.streamChat` 在交出事件前用
+  `event.hasPayload` 过滤，而它只看 `content` / `reasoning`；官方 Chat Completions 的
+  `server_tool_event`、`annotations`、`server_tool_calls`、`title` 都独立于正文增量下发
+  （末块可能没有 `delta`），于是检索进度、来源、引用角标、服务端标题、拒答与阅读链接
+  `signature` 全部没有到达 `ChatController`。现在 `hasPayload` 纳入这些载荷，
+  `_parseChunk` 不再把 `delta` 当解析前提。
+- **测试**：新增 `test/chat_stream_test.dart`，用 mock SSE 锁定「无正文增量的工具事件、
+  末块引用与 signature 能到达上层」以及 `finish_reason=length`；为此 `streamChat`
+  增加仅测试用的 `clientFactory` 参数（生产不传）。
+- **截断提示**：`finish_reason=length` → `ChatStreamEvent.truncated` →
+  `ChatMessage.truncated`（实时字段）→ 气泡下方「回答达到长度上限，可能不完整」。
+- **DeepSeek 多轮**：`buildApiMessages` 增加 `replayReasoning`，DeepSeek 不回传
+  `reasoning_content` 且丢弃「只有思考没有正文」的空回合（与鸿蒙端一致）；Kimi / MiMo
+  行为不变（`dddbbc6`）。
+- **遗留**：图片搜索 `image_url`、来源口径、模型限定 `deepseek-flash`、历史截断丢 signature、
+  搜索失败提示，见 `techdebt/TD-010`。
+- 验证：`flutter analyze` 零 issue、`flutter test` 61 项通过；真实 SSE 表现仍需真机回归。
