@@ -44,8 +44,8 @@ covered_paths:
   - mobile/test/balance_service_test.dart
   - mobile/test/citation_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 1e5030b
-last_verified: 2026-11-24
+last_verified_commit: 225f412
+last_verified: 2026-11-25
 ---
 
 # BalanceApp Mobile（Flutter Android/iOS）systemmap
@@ -294,6 +294,14 @@ last_verified: 2026-11-24
 未跟 demo 的部分（移动端不适用或有代价）：分栏式搜索面板（手机改为底部面板）、
 hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）、继续生成（需 beta 接口
 与 prefix）、会话导入导出（两端都缺，见 TD-004/TD-006）。
+
+## 生图工具与鸿蒙端对齐为「声明式」（2026-11-25，analyze/test 通过）
+
+- 移动端本就没有关键词闸门（`enableImageTool: featureImage && providerId == 'deepseek'`），
+  与鸿蒙端去掉关键词表后的语义一致：工具声明出去，画不画由模型自判。
+- 补一处同构兜底：`_runImageTool` 读到生图 Key 为空时直接抛
+  「未配置百智云「生图」Key（设置 > 工具）」，与鸿蒙端文案一致，不再等接口 401 才报错。
+- 已知风险与鸿蒙端相同（两工具同场时模型可能只认生图）；真机回归见 `techdebt/TD-004`。
 
 ## 百智云积分与签到跳转（2026-11-24，analyze/test 通过）
 

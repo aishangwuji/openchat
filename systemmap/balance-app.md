@@ -31,14 +31,33 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: 1e5030b
-last_verified: 2026-11-24
+last_verified_commit: 225f412
+last_verified: 2026-11-25
 ---
 
 > 前瞻设计：多角色群聊（@ + 记忆隔离）详见 `docs/group-chat-design.md`（原设计中的 Jev 路由已随
 > 上下文净化移除，见下方「已移除」小节）。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
+
+## 生图工具改为声明式：模型自判，不再用关键词表（2026-11-25，构建通过）
+
+- **问题**：`generate_image` 原按「本地关键词表 + 短跟进继承」决定是否声明
+  （`ChatView.wantsImage/wantsImageWithContext`），关键词表覆盖不到「生成一张图片」「做张图」这类说法，
+  工具根本没进请求体，表现为「对话里触发不了生图」。
+- **改法（用户指定：参考联网搜索/官方 chat-demo 的声明形式）**：
+  `enableImageTool = featureImage && providerId === 'deepseek'`——开关打开且服务商支持就声明，
+  是否真的画交给模型；`ChatView` 删除 `wantsImage/wantsImageWithContext` 与
+  `KEY_BAIZHI_IMAGE_READY` 订阅（不再以「生图 Key 已配置」为声明前提）。
+- **缺 Key 的兜底**：执行阶段 `runImageTool` 读 Key 为空时抛「未配置百智云「生图」Key（设置 > 工具）」，
+  气泡里显示失败原因——比静默不声明更容易定位。
+- **工具描述同步收紧**：`ChatService.buildImageToolDeclaration` 写明「仅当用户明确要图片产物时调用；
+  普通问答/解释/代码/文案改写不要调用；与联网搜索互不排斥」。
+- **已知风险（有意接受）**：2026-11-20 实测过「两个工具同场时模型可能只认生图、不检索」。
+  这次选择声明式，若真机复现该退化，优先调工具描述/系统提示，不回到关键词表。
+- **验证**：`hvigor assembleHap` 通过；移动端同构逻辑（`featureImage && deepseek`）本就没有关键词闸门，
+  `flutter analyze` 零 issue、`flutter test` 53 项通过。真机需用真实 Key 复测
+  「搜今天新闻」（应检索）与「生成一张图片」（应出图），本机未跑，避免消耗用户额度。
 
 ## 百智云积分与签到跳转（2026-11-24，构建通过）
 
@@ -152,6 +171,8 @@ last_verified: 2026-11-24
   并声称自己没有搜索能力。实测同一条 history：只给 web 工具必检索，两个都给则不检索。
   修：按意图二选一——`ChatView.wantsImage()` 命中关键词（画/头像/海报/插画/配图/壁纸/生图/绘制…）
   才声明 `generate_image`，否则只声明 `web_search`。
+  > **已被 2026-11-25 取代**：用户明确要求去掉关键词表、改为「声明式 + 模型自判」，
+  > 见上方「生图工具改为声明式」小节；本节保留为当时的实测记录。
 - 验证（真实 Key 重放历史）：修前「搜日照」→ 返回 `generate_image` 工具调用；修后 → 直接检索并返回 19 条引用；
   「我手里这是什么」+ 仅 web 工具 → 正常答出贝壳/卵石/螺壳并检索 9 条引用。
 
