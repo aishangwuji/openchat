@@ -1288,6 +1288,11 @@ class ChatController extends ChangeNotifier {
     notifyListeners();
     try {
       final String key = await _settings.readBaizhiImageKey();
+      // Same contract as HarmonyOS: the tool is always declared, a missing key
+      // is reported here instead of silently hiding the tool.
+      if (key.trim().isEmpty) {
+        throw const ImageGenException('未配置百智云「生图」Key（设置 > 工具）');
+      }
       final String taskId = await ImageGenService.createTask(
         prompt: prompt,
         ratio: ratio,

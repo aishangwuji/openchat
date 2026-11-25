@@ -28,8 +28,7 @@ import { TtsCallbacks, TtsService } from '../services/TtsService';
 import {
   SettingsService, KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS,
   KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY, KEY_FEATURE_READ_URL, KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_BAIZHI,
-  KEY_USER_LOCATION,
-  KEY_BAIZHI_IMAGE_READY
+  KEY_USER_LOCATION
 } from '../services/SettingsService';
 import { FileUploadService, UploadedFile } from '../services/FileUploadService';
 import { VoiceRecorder } from '../services/VoiceRecorder';
@@ -117,13 +116,6 @@ export struct ChatView {
    * Business Rule: 只有 DeepSeek 服务商会把它写进请求（tools 声明），其余服务商界面不展示该开关。
    */
   @State enableWebSearch: boolean = false;
-  /** 百智云生图 Key 是否已配置：决定本轮是否向模型声明 generate_image 工具。 */
-  /**
-   * 生图工具是否可用：订阅百智云生图 Key 的「已配置」状态（AppStorage）。
-   * Business Rule: 百智云按模块签 Key，生图 Key 与联网搜索 Key 互不通用；
-   *   这里必须订阅而不是在 aboutToAppear 里读一次，否则设置里存完 Key 回聊天页仍不生效。
-   */
-  @StorageProp(KEY_BAIZHI_IMAGE_READY) imageKeyConfigured: boolean = false;
   /** 工具开关（设置 > 工具）：页面用 @StorageProp 跟随设置实时生效。 */
   @StorageProp(KEY_FEATURE_TITLE) featureTitle: boolean = true;
   @StorageProp(KEY_FEATURE_FILES) featureFiles: boolean = true;
@@ -224,7 +216,7 @@ export struct ChatView {
       // 联网搜索偏好随 balance_prefs 持久化（与 API Key 同库，不额外引入新 Preferences 存储）。
       const webSearchPref: preferences.ValueType = await this.balancePrefs.get('web_search_enabled', false);
       this.enableWebSearch = webSearchPref === true;
-      // 生图工具是否可用：只看百智云生图 Key 是否配置（AppStorage 订阅，见字段声明）。
+      // 生图工具不再看 Key：开关打开且服务商是 DeepSeek 就声明，缺 Key 由执行阶段报错。
 
       // 加载角色卡
       this.characters = await ChatStorageService.loadCharacters();
@@ -2720,11 +2712,10 @@ export struct ChatView {
         // 百智云模式在发送前已由客户端检索，不能再声明 DeepSeek 服务端工具（否则会搜两次）。
         enableWebSearch: this.enableWebSearch && this.webSearchProvider !== WEB_SEARCH_PROVIDER_BAIZHI &&
           WebSearchService.isSupported(this.currentProviderId),
-        // 生图：客户端函数工具，仅在开关打开、配置了百智云 Key、服务商为 DeepSeek 且本轮确实要图时声明。
-        // Business Rule: 生图工具与联网搜索服务端工具同时声明时，模型会误判「只有一个工具」并
-        //   拒绝联网搜索（2026-11-20 实测）；故按意图二选一，避免两套 tools 互相干扰。
-        enableImageTool: this.featureImage && this.imageKeyConfigured &&
-          this.currentProviderId === 'deepseek' && this.wantsImageWithContext(parentMsg),
+        // 生图：客户端函数工具，与联网搜索同一套「声明式」触发——开关打开且服务商支持就声明，
+        // 是否真的画由模型按用户意图自判（不再用本地关键词表猜意图，也不再要求先配 Key：
+        // 缺 Key 时执行阶段会给出「未配置百智云生图 Key」的明确提示）。
+        enableImageTool: this.featureImage && this.currentProviderId === 'deepseek',
         // 内容安全：官方基础风控（可关）。
         enableSafety: this.featureSafety,
         // 阅读链接：服务端抓用户消息里的 URL（是否读由模型判断）。
@@ -3050,59 +3041,6 @@ export struct ChatView {
   private getProviderName(id: string): string {
     const def: ProviderDefinition | undefined = findProvider(id);
     return def ? def.name : id;
-  }
-
-  /**
-   * 带上下文的生图意图：本轮命中关键词，或「短跟进」（继续 / 还要 / 再来）继承上一轮的生图意图。
-   * Reason: 「继续啊」这类追问不带生图关键词，二选一的路由会把生图工具摘掉，
-   *   模型于是回「我这边不能直接输出图片文件」（2026-11-20 实测）。
-   */
-  private wantsImageWithContext(parent: ChatMessage): boolean {
-    if (this.wantsImage(parent.content)) {
-      return true;
-    }
-    const text: string = parent.content.trim();
-    if (text.length > 12) {
-      return false;
-    }
-    const path: ChatMessage[] = this.activePath();
-    let idx: number = path.length - 1;
-    while (idx >= 0) {
-      if (path[idx].id === parent.id) {
-        break;
-      }
-      idx -= 1;
-    }
-    let j: number = idx - 1;
-    while (j >= 0) {
-      const prev: ChatMessage = path[j];
-      if (prev.role === 'user') {
-        return this.wantsImage(prev.content);
-      }
-      j -= 1;
-    }
-    return false;
-  }
-
-  /**
-   * 本轮是否要生成图片：按关键词判断，决定要不要给模型声明 generate_image 工具。
-   * Reason: 生图工具与联网搜索工具同场时模型会「只认一个」（实测拒绝搜索），按意图二选一最稳；
-   *   关键词命中失败也不会更糟——模型仍可用文字回答，只是不会有图。
-   */
-  private wantsImage(text: string): boolean {
-    const lower: string = text.toLowerCase();
-    const keys: string[] = [
-      '画', '头像', '海报', '插画', '配图', '壁纸', '生图', '绘制', '手绘', '素描',
-      '再来一张', '换一张', 'logo', 'draw', 'avatar', 'poster', 'illustration'
-    ];
-    let i: number = 0;
-    while (i < keys.length) {
-      if (lower.includes(keys[i])) {
-        return true;
-      }
-      i += 1;
-    }
-    return false;
   }
 
   private currentSessionTitle(): string {

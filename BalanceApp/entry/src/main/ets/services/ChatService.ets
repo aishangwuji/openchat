@@ -112,8 +112,10 @@ export interface ChatRequestOptions {
    */
   enableTitle?: boolean;
   /**
-   * 生图工具开关：声明客户端函数 generate_image，模型自行判断何时调用。
-   * Business Rule: 只有配置了百智云 Key 且服务商支持 function tools 时才声明，否则模型可能空转。
+   * 生图工具开关：声明客户端函数 generate_image，与联网搜索同形——声明后由模型判断
+   * 用户是否真的要图，客户端不再按关键词猜意图。
+   * Business Rule: 声明只受「图片生成」开关与服务商能力约束；缺百智云生图 Key 不在这里
+   *   静默摘工具，而是执行阶段给出明确提示，避免「点了没反应」。
    */
   enableImageTool?: boolean;
   /** 内容安全：声明 safety_check.level=high（官方基础风控，输入输出都审核）。 */
@@ -204,7 +206,7 @@ export class ChatService {
               // 终块 usage 形如 {choices:[], usage:{...}}：choices 为空即跳过，
               // 本项目 token 统计已下线，不读取 usage。
               // 解析 delta content / reasoning_content（均为追加式增量，不可覆盖）；
-              // role 仅首块出现，此处忽略；delta.tool_calls 本项目无 tools，有意忽略。
+              // role 仅首块出现，此处忽略；delta.tool_calls 由下方 mergeToolCalls 合并。
               const choices: ESObject = rootRec['choices'];
               if (Array.isArray(choices) && choices.length > 0) {
                 const choiceItem: ESObject = choices[0];
@@ -578,7 +580,8 @@ export class ChatService {
 
   /**
    * 生图工具的 JSON Schema 声明（DeepSeek function calling）。
-   * Business Rule: 描述里写清「画图/生成图片」触发场景，避免模型把普通问答误判为生图。
+   * Business Rule: 工具始终声明（能力就绪时），何时调用完全交给模型；描述里写清触发场景与
+   *   不触发场景，避免模型把普通问答误判为生图，也避免它因为多了这个工具而跳过联网搜索。
    */
   private static buildImageToolDeclaration(): Record<string, ESObject> {
     const properties: Record<string, ESObject> = {
@@ -603,7 +606,9 @@ export class ChatService {
     };
     const fn: Record<string, ESObject> = {
       'name': 'generate_image',
-      'description': '根据文字描述生成图片。当用户要求画画、生成图片、海报、插画、配图等视觉内容时调用。',
+      'description': '根据文字描述生成图片。仅当用户明确要一张图片产物（画画、生成图片、海报、插画、' +
+        '头像、壁纸、配图等视觉内容）时调用；普通问答、解释、代码、文案改写不要调用。' +
+        '本工具与联网搜索互不排斥：用户既要最新信息又要图时，照常使用联网搜索。',
       'parameters': parameters
     };
     const decl: Record<string, ESObject> = {
@@ -699,7 +704,8 @@ export class ChatService {
         ri += 1;
       }
     }
-    // 生图：客户端函数工具，由模型决定何时调用，客户端执行百智云任务。
+    // 生图：客户端函数工具，可与上面的服务端搜索/阅读工具同时声明；
+    // 模型自己决定要不要画，客户端只在收到 tool_calls 后执行百智云任务。
     if (options.enableImageTool === true && options.providerId === 'deepseek') {
       tools.push(ChatService.buildImageToolDeclaration() as ESObject);
     }
