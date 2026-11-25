@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 
 import '../../core/app_version.dart';
@@ -8,7 +9,8 @@ import '../../core/app_version.dart';
 ///
 /// - 更新源：Gitee Release 优先、GitHub Release 兜底；
 /// - tag 形如 `v1.2.3`，与 [appVersion] 逐段数值比较；
-/// - 资产优先 `.hap`/`.apk`，没有资产时回退 release 页面；
+/// - 资产只认 `.apk`（HAP 是鸿蒙原生包，Android/卓易通装不了），
+///   没有 APK 时回退 release 页面；
 /// - 网络失败返回 null，调用方决定是否提示。
 class UpdateInfo {
   const UpdateInfo({
@@ -75,7 +77,7 @@ class UpdateService {
       if (notes.length > _maxNotesChars) {
         notes = '${notes.substring(0, _maxNotesChars)}…';
       }
-      final String download = _pickAsset(rec['assets']);
+      final String download = pickDownloadAsset(rec['assets']);
       return UpdateInfo(
         version: version,
         notes: notes,
@@ -91,12 +93,15 @@ class UpdateService {
     }
   }
 
-  /// 资产优先级：.hap → .apk → 第一个可下载链接。
-  static String _pickAsset(Object? raw) {
+  /// 资产优先级：`.apk` → 第一个可下载链接（通常是 release 页面）。
+  ///
+  /// Business Rule: 同一 release 可能同时挂 Android APK 与 HarmonyOS HAP。
+  /// Android/卓易通只能安装 APK，绝不能因为 HAP 排在前面就选中它。
+  @visibleForTesting
+  static String pickDownloadAsset(Object? raw) {
     if (raw is! List) {
       return '';
     }
-    String hap = '';
     String apk = '';
     String first = '';
     for (final Object? item in raw) {
@@ -111,14 +116,11 @@ class UpdateService {
         first = url;
       }
       final String lower = url.toLowerCase();
-      if (hap.isEmpty && lower.endsWith('.hap')) {
-        hap = url;
-      }
       if (apk.isEmpty && lower.endsWith('.apk')) {
         apk = url;
       }
     }
-    return hap.isNotEmpty ? hap : (apk.isNotEmpty ? apk : first);
+    return apk.isNotEmpty ? apk : first;
   }
 
   /// 逐段数值比较：1.2.10 > 1.2.9；非法段按 0 处理。
