@@ -52,7 +52,21 @@ class ChatStreamEvent {
   final String toolCallName;
   final String toolCallArgs;
 
-  bool get hasPayload => content.isNotEmpty || reasoning.isNotEmpty;
+  /// 本块是否有需要交给上层的载荷。
+  ///
+  /// Business Rule: `server_tool_event`、`annotations`、`server_tool_calls`、`title`
+  /// 都独立于正文增量下发，末块甚至可能没有 `delta`。只按正文/思考判断会把
+  /// 检索进度、来源、引用、服务端标题与阅读链接的 signature 整体丢掉。
+  bool get hasPayload =>
+      content.isNotEmpty ||
+      reasoning.isNotEmpty ||
+      searchHint.isNotEmpty ||
+      sources.isNotEmpty ||
+      citations.isNotEmpty ||
+      title.isNotEmpty ||
+      refusal.isNotEmpty ||
+      serverToolCallsJson.isNotEmpty ||
+      toolCallIndex >= 0;
 }
 
 class ChatRequestOptions {
@@ -170,7 +184,11 @@ class ChatService {
   static const Duration _connectTimeout = Duration(seconds: 15);
   static const Duration _readTimeout = Duration(seconds: 90);
 
-  static Stream<ChatStreamEvent> streamChat(ChatRequestOptions options) async* {
+  /// [clientFactory] 仅测试用：注入 mock client 验证流式解码，生产传 null。
+  static Stream<ChatStreamEvent> streamChat(
+    ChatRequestOptions options, {
+    http.Client Function()? clientFactory,
+  }) async* {
     final ProviderDefinition? def = findProvider(options.providerId);
     if (def == null) {
       throw ChatException('未知的服务商: ${options.providerId}');
@@ -183,7 +201,8 @@ class ChatService {
     }
 
     final Uri uri = Uri.parse('${def.baseUrl}${def.chatEndpoint}');
-    final http.Client client = http.Client();
+    final http.Client client =
+        clientFactory != null ? clientFactory() : http.Client();
     try {
       final http.Request request = http.Request('POST', uri)
         ..headers.addAll(<String, String>{
@@ -253,10 +272,11 @@ class ChatService {
       if (choice is! Map) {
         return null;
       }
-      final Object? delta = choice['delta'];
-      if (delta is! Map) {
-        return null;
-      }
+      // `server_tool_event` 与 `delta` 并列；`annotations`/`server_tool_calls`/`title`
+      // 只在末块出现，且末块可能没有正文增量。把 delta 当解析前提会丢掉这些块。
+      final Object? deltaRaw = choice['delta'];
+      final Map<Object?, Object?> delta =
+          deltaRaw is Map ? deltaRaw : const <Object?, Object?>{};
       final Object? content = delta['content'];
       final Object? reasoning = delta['reasoning_content'];
       final _ToolEvent toolEvent = _parseToolEvent(choice['server_tool_event']);
@@ -310,7 +330,8 @@ class ChatService {
             }
           }
         }
-      }      return ChatStreamEvent(
+      }
+      return ChatStreamEvent(
         content: content is String ? content : '',
         reasoning: reasoning is String ? reasoning : '',
         searchHint: toolEvent.hint,
