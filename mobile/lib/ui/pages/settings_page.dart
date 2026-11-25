@@ -203,10 +203,11 @@ class SettingsPage extends StatelessWidget {
     );
   }
 
-  /// 手动检查更新：Gitee 优先、GitHub 兜底；只提示不强制。
+  /// 朗读音色：文案与鸿蒙端 `settings_voice_*` 保持一致（海星 / 暗潮）。
   Future<void> _pickTtsVoice(
     BuildContext context,
     SettingsController settings,
+    SettingsStrings s,
   ) async {
     await showModalBottomSheet<void>(
       context: context,
@@ -214,8 +215,37 @@ class SettingsPage extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: <Widget>[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  s.t('settings_voice_title'),
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: ctx.colors.textTitle,
+                  ),
+                ),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 0, 20, 10),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  s.t('settings_voice_hint'),
+                  style: TextStyle(
+                    fontSize: 12,
+                    height: 1.5,
+                    color: ctx.colors.textMuted,
+                  ),
+                ),
+              ),
+            ),
             ListTile(
-              title: const Text('Stella（默认）'),
+              title: Text(s.t('settings_voice_stella')),
+              subtitle: Text(s.t('settings_voice_stella_desc')),
               trailing: settings.ttsVoice == 'stella'
                   ? const Icon(Icons.check_rounded)
                   : null,
@@ -225,7 +255,8 @@ class SettingsPage extends StatelessWidget {
               },
             ),
             ListTile(
-              title: const Text('Tide'),
+              title: Text(s.t('settings_voice_tide')),
+              subtitle: Text(s.t('settings_voice_tide_desc')),
               trailing: settings.ttsVoice == 'tide'
                   ? const Icon(Icons.check_rounded)
                   : null,
@@ -234,6 +265,7 @@ class SettingsPage extends StatelessWidget {
                 settings.setTtsVoice('tide');
               },
             ),
+            const SizedBox(height: 12),
           ],
         ),
       ),
@@ -421,18 +453,23 @@ class SettingsPage extends StatelessWidget {
                             settings.setFeatureBool(PreferencesService.keyFeatureSafety, v),
                       ),
                     ],
-                  ),                  _SettingsCard(
+                  ),
+                  _SectionLabel(text: s.t('settings_section_voice')),
+                  _SettingsCard(
                     children: <Widget>[
                       _SettingsRow(
-                        title: '朗读音色',
+                        title: s.t('settings_tts_voice'),
                         trailing: Text(
-                          settings.ttsVoice == 'tide' ? 'Tide' : 'Stella',
+                          settings.ttsVoice == 'tide'
+                              ? s.t('settings_voice_tide')
+                              : s.t('settings_voice_stella'),
                           style: TextStyle(fontSize: 12, color: c.textMuted),
                         ),
-                        onTap: () => _pickTtsVoice(context, settings),
+                        onTap: () => _pickTtsVoice(context, settings, s),
                       ),
                     ],
-                  ),                  _SectionLabel(text: s.t('settings_section_security')),
+                  ),
+                  _SectionLabel(text: s.t('settings_section_security')),
                   _SettingsCard(
                     children: <Widget>[
                       _SettingsRow(
