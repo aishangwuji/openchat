@@ -18,6 +18,8 @@ class FileUploadService {
   static const String _endpoint = 'https://api.deepseek.com/files';
   static const int _maxDocBytes = 100 * 1024 * 1024;
   static const int _maxUserDataBytes = 32 * 1024 * 1024;
+  /// 官方图片通过 Files API 引用时单张上限 64 MiB（纯文本/表格仍是 32 MiB）。
+  static const int _maxImageBytes = 64 * 1024 * 1024;
   static const Duration _timeout = Duration(minutes: 5);
 
   static const List<String> _userDataExts = <String>[
@@ -64,6 +66,16 @@ class FileUploadService {
   static bool isImage(String fileName) =>
       _visionExts.contains(extensionOf(fileName));
 
+  /// 单文件大小上限：图片 64 MiB，需解析文档 100 MiB，纯文本/表格 32 MiB。
+  static int maxBytesFor(String fileName) {
+    if (isImage(fileName)) {
+      return _maxImageBytes;
+    }
+    return purposeFor(fileName) == 'user_data'
+        ? _maxUserDataBytes
+        : _maxDocBytes;
+  }
+
   /// 上传单个文件；失败抛 [FileUploadException]。
   static Future<MessageAttachment> upload({
     required String apiKey,
@@ -78,7 +90,7 @@ class FileUploadService {
     if (purpose.isEmpty) {
       throw FileUploadException('不支持的文件格式：$fileName');
     }
-    final int limit = purpose == 'user_data' ? _maxUserDataBytes : _maxDocBytes;
+    final int limit = maxBytesFor(fileName);
     if (bytes.length > limit) {
       throw FileUploadException(
         '文件超过 ${limit ~/ (1024 * 1024)} MiB 上限：$fileName',
