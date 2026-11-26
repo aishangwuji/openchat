@@ -2661,6 +2661,29 @@ export struct ChatView {
             finish();
             return;
           }
+          // Business Rule: 兜底防空回答——正常完成但没有任何正文/思考/工具产出时，落成 success
+          //   会让助手气泡整块空白（用户看不到任何反馈）。ChatService 已在 dataEnd 优先拦截，
+          //   这里防旧路径/竞态；工具轮（生图、阅读链接）本身可以没有正文，不算空回答。
+          const hasText: boolean = assistantMsg.content.length > 0 ||
+            (assistantMsg.reasoningContent !== undefined && assistantMsg.reasoningContent.length > 0);
+          const hasTool: boolean = roundToolCalls.length > 0 ||
+            (assistantMsg.serverToolCallsJson !== undefined && assistantMsg.serverToolCallsJson.length > 0);
+          if (!hasText && !hasTool) {
+            assistantMsg.status = 'error';
+            assistantMsg.errorMessage = '本轮没有返回内容，请重试';
+            assistantMsg.searchState = undefined;
+            assistantMsg.searchHint = undefined;
+            this.isGenerating = false;
+            this.finishMarkdown(assistantMsg, true);
+            if (titleEnabled) {
+              sess.autoTitled = true;
+            }
+            hilog.warn(DOMAIN, TAG, 'empty reply slipped to onComplete, marked error');
+            this.rebuildSessionReference();
+            this.saveState();
+            finish();
+            return;
+          }
           assistantMsg.status = 'success';
           this.isGenerating = false;
           this.finishMarkdown(assistantMsg, false);
@@ -2720,6 +2743,15 @@ export struct ChatView {
       // 会话标题：每个会话只请求一次（session.autoTitled），且只在标题仍是自动生成时覆盖；
       // 服务端最多多等 5 秒，标题不计费。非 DeepSeek 服务商由 ChatService 内部拦掉。
       const titleEnabled: boolean = this.featureTitle && !sess.autoTitled && this.isAutoTitle(sess);
+
+      // 诊断：长会话「回答不显示」定位用（只记条数与开关，不记正文/Key）。
+      hilog.info(DOMAIN, TAG, 'request: history=%{public}d web=%{public}s image=%{public}s readUrl=%{public}s thinking=%{public}s',
+        history.length,
+        String(this.enableWebSearch && this.webSearchProvider !== WEB_SEARCH_PROVIDER_BAIZHI &&
+          WebSearchService.isSupported(this.currentProviderId)),
+        String(this.featureImage && this.currentProviderId === 'deepseek'),
+        String(this.featureReadUrl),
+        String(this.enableThinking));
 
       this.abortStreaming = ChatService.streamChat({
         providerId: this.currentProviderId,
@@ -4877,6 +4909,23 @@ export struct ChatView {
                 .fontSize(14)
                 .fontColor(skinColor('reasoning_text'))
             }
+          }
+
+          // 兜底：历史里遗留的空助手消息（旧版本把空回答落成 success）不再显示为整块空白。
+          // Business Rule: 可点击「重试」复用重新生成分支，避免用户只能重开新会话。
+          if (msg.content.length === 0 &&
+            (msg.reasoningContent === undefined || msg.reasoningContent.length === 0) &&
+            msg.status !== 'streaming' && msg.status !== 'error' &&
+            msg.imageState === undefined &&
+            (msg.imageUrls === undefined || msg.imageUrls.length === 0) &&
+            (msg.serverToolCallsJson === undefined || msg.serverToolCallsJson.length === 0)) {
+            Text('本轮没有返回内容，点此重试')
+              .fontSize(13)
+              .fontColor(skinColor('chat_accent'))
+              .padding({ top: 4, bottom: 2 })
+              .onClick(() => {
+                this.regenerateFrom(msg);
+              });
           }
 
           // 错误信息显示

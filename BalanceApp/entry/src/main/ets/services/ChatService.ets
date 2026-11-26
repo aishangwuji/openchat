@@ -167,6 +167,14 @@ export class ChatService {
     let incompleteReason: string = '';
     // 已通过 onError 收尾，避免 err 回调与 dataEnd 重复回调。
     let settled: boolean = false;
+    // 本轮"可展示产出"判据：正文 / 思考 / 客户端工具调用 / 服务端工具（阅读链接）/ 拒答。
+    // Business Rule: 流正常关闭但一条产出都没有时不能按成功收尾，否则界面只剩一个空白气泡，
+    //   用户表现为「AI 回答不显示」（2026-11-26 排查）。
+    let sawOutput: boolean = false;
+    // 最后一个非空 finish_reason，仅用于空回答文案与诊断日志。
+    let finishReason: string = '';
+    // 收到 choices 的 chunk 数，仅用于诊断（区分"服务端没下发"与"解析丢了"）。
+    let chunkCount: number = 0;
     const decoder: util.TextDecoder = util.TextDecoder.create('utf-8', { ignoreBOM: true });
     // 客户端工具调用：arguments 分片到达，按 index 累加，流结束后统一回调。
     const toolAcc: Map<number, ToolCallRequest> = new Map<number, ToolCallRequest>();
@@ -237,6 +245,7 @@ export class ChatService {
               // role 仅首块出现，此处忽略；delta.tool_calls 由下方 mergeToolCalls 合并。
               const choices: ESObject = rootRec['choices'];
               if (Array.isArray(choices) && choices.length > 0) {
+                chunkCount += 1;
                 const choiceItem: ESObject = choices[0];
                 if (choiceItem !== null && typeof choiceItem === 'object') {
                   const choiceRec: Record<string, ESObject> = choiceItem as Record<string, ESObject>;
@@ -251,8 +260,14 @@ export class ChatService {
                     }
                   }
                   const finishVal: ESObject = choiceRec['finish_reason'];
+                  if (typeof finishVal === 'string' && (finishVal as string).length > 0) {
+                    finishReason = finishVal as string;
+                  }
                   if (finishVal === 'content_filter') {
                     refusalReason = '内容未通过安全审核';
+                    // 拒答本身就是一种"有结论的产出"：不能落进空回答分支，否则安全提示会被
+                    // 「本轮没有返回内容」盖掉（onRefusal 需要照常回调）。
+                    sawOutput = true;
                   } else if (finishVal === 'length') {
                     // 输出达到最大长度；搜索/阅读链接之后上下文用尽也会走这里。
                     incompleteReason = '回答达到长度上限，可能不完整';
@@ -264,16 +279,21 @@ export class ChatService {
                     const reasoningStr: string = typeof deltaRec['reasoning_content'] === 'string' ? deltaRec['reasoning_content'] as string : '';
 
                     if (contentStr.length > 0 || reasoningStr.length > 0) {
+                      sawOutput = true;
                       callbacks.onToken(contentStr, reasoningStr.length > 0 ? reasoningStr : undefined);
                     }
                     const refusalVal: ESObject = deltaRec['refusal'];
                     if (typeof refusalVal === 'string' && (refusalVal as string).length > 0) {
                       refusalReason = refusalVal as string;
+                      sawOutput = true;
                     }
                     // 客户端工具调用（generate_image）：delta.tool_calls 分片到达，按 index 合并。
                     const toolCallsVal: ESObject = deltaRec['tool_calls'];
                     if (Array.isArray(toolCallsVal)) {
                       ChatService.mergeToolCalls(toolCallsVal as ESObject[], toolAcc);
+                      if (toolAcc.size > 0) {
+                        sawOutput = true;
+                      }
                     }
                     // 引用位标只在带 finish_reason 的末块 delta 里一次性下发；
                     // 与正文增量无关，故不并入 onToken，单独回调避免污染流式文本。
@@ -297,6 +317,7 @@ export class ChatService {
                       if (stcJson.length > 0) {
                         // 诊断用：只记体积，不记 signature 内容（含网页正文密文）。
                         hilog.info(DOMAIN, TAG, 'server_tool_calls: %{public}d chars', stcJson.length);
+                        sawOutput = true;
                         callbacks.onServerToolCalls(stcJson);
                       }
                     }
@@ -325,27 +346,40 @@ export class ChatService {
           hilog.error(DOMAIN, TAG, 'stream error: %{public}s', streamError);
           callbacks.onError(ChatService.errorNotice(streamError));
         } else {
-          if (!sawDone) {
-            // 未收到 [DONE] 即关流：按不完整对待，仅打日志，仍以已收 token 落库（调用方已做 keep-partial）。
-            hilog.warn(DOMAIN, TAG, 'Stream ended without [DONE], keep partial content');
-          }
-          // 拒答先于 onComplete 回调：调用方清空已展示文本并给拒答提示。
-          if (refusalReason.length > 0 && callbacks.onRefusal !== undefined) {
-            callbacks.onRefusal(refusalReason);
-          }
-          // 工具调用先于 onComplete 回调：调用方可在收尾时统一处理（生图任务）。
-          if (callbacks.onToolCalls !== undefined && toolAcc.size > 0) {
-            const calls: ToolCallRequest[] = ChatService.collectToolCalls(toolAcc);
-            if (calls.length > 0) {
-              callbacks.onToolCalls(calls);
+          // 诊断：finish_reason / 是否收到 SSE / chunk 数 / 是否有产出；长会话「回答不显示」靠它定位。
+          hilog.info(DOMAIN, TAG, 'stream end: finish=%{public}s sse=%{public}s chunks=%{public}d output=%{public}s',
+            finishReason.length > 0 ? finishReason : '-', String(sawSseData), chunkCount, String(sawOutput));
+          if (!sawOutput) {
+            // Business Rule: 流正常关闭但没有任何可展示内容（服务端资源不足/中断/空流）不能按成功收尾，
+            //   否则助手消息落成「success + 空正文」，气泡在界面上整块空白，用户看不到任何反馈。
+            settled = true;
+            const emptyNotice: string = ChatService.emptyReplyNotice(finishReason);
+            hilog.error(DOMAIN, TAG, 'empty reply: finish_reason=%{public}s',
+              finishReason.length > 0 ? finishReason : '-');
+            callbacks.onError(emptyNotice);
+          } else {
+            if (!sawDone) {
+              // 未收到 [DONE] 即关流：按不完整对待，仅打日志，仍以已收 token 落库（调用方已做 keep-partial）。
+              hilog.warn(DOMAIN, TAG, 'Stream ended without [DONE], keep partial content');
             }
+            // 拒答先于 onComplete 回调：调用方清空已展示文本并给拒答提示。
+            if (refusalReason.length > 0 && callbacks.onRefusal !== undefined) {
+              callbacks.onRefusal(refusalReason);
+            }
+            // 工具调用先于 onComplete 回调：调用方可在收尾时统一处理（生图任务）。
+            if (callbacks.onToolCalls !== undefined && toolAcc.size > 0) {
+              const calls: ToolCallRequest[] = ChatService.collectToolCalls(toolAcc);
+              if (calls.length > 0) {
+                callbacks.onToolCalls(calls);
+              }
+            }
+            // 截断提示先于 onComplete：正文照常落库，只多一行状态。
+            if (incompleteReason.length > 0 && callbacks.onIncomplete !== undefined) {
+              callbacks.onIncomplete(incompleteReason);
+            }
+            settled = true;
+            callbacks.onComplete();
           }
-          // 截断提示先于 onComplete：正文照常落库，只多一行状态。
-          if (incompleteReason.length > 0 && callbacks.onIncomplete !== undefined) {
-            callbacks.onIncomplete(incompleteReason);
-          }
-          settled = true;
-          callbacks.onComplete();
         }
       }
       try {
@@ -475,6 +509,27 @@ export class ChatService {
       return '本次对话未通过内容安全审核，请调整内容后重试';
     }
     return `请求失败：${errText}`;
+  }
+
+  /**
+   * 空回答的用户文案：服务端正常关流但没有任何正文/思考/工具产出。
+   * Business Rule: 不同 finish_reason 给不同提示，避免统一「请重试」掩盖可定位的原因；
+   *   未知 finish_reason 原样带出，便于用户反馈时我们能定位（不涉及内容）。
+   */
+  private static emptyReplyNotice(finishReason: string): string {
+    if (finishReason === 'insufficient_system_resource') {
+      return '服务端推理资源不足，本轮没有生成任何内容，请稍后重试';
+    }
+    if (finishReason === 'aborted') {
+      return '本轮生成被服务端中断，没有返回内容，请重试';
+    }
+    if (finishReason === 'tool_calls') {
+      return '模型只发起了工具调用，没有返回文字内容，请重试';
+    }
+    if (finishReason.length > 0 && finishReason !== 'stop' && finishReason !== 'length') {
+      return `本轮没有返回内容（finish_reason: ${finishReason}），请重试`;
+    }
+    return '本轮没有返回内容，请重试';
   }
 
   /**
