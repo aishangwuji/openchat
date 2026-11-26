@@ -987,6 +987,11 @@ class ChatController extends ChangeNotifier {
         if (token != _generation) {
           return;
         }
+        // 生成中失败：保留已收到的正文，但状态必须是 error，不能落成成功。
+        if (event.error.isNotEmpty) {
+          fail(ChatException(event.error));
+          return;
+        }
         if (event.done) {
           complete(stopped: false);
           if (toolNames.containsValue('generate_image')) {
@@ -1009,7 +1014,8 @@ class ChatController extends ChangeNotifier {
                 .putIfAbsent(event.toolCallIndex, () => StringBuffer())
                 .write(event.toolCallArgs);
           }
-        }        if (event.searchHint.isNotEmpty) {
+        }
+        if (event.searchHint.isNotEmpty) {
           assistant.searchHint = event.searchHint;
           assistant.searching = event.searchHint.contains('正在');
         }

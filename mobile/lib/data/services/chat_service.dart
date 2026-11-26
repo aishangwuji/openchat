@@ -40,6 +40,7 @@ class ChatStreamEvent {
     this.title = '',
     this.refusal = '',
     this.truncated = false,
+    this.error = '',
     this.serverToolCallsJson = '',
     this.toolCallIndex = -1,
     this.toolCallId = '',
@@ -62,6 +63,8 @@ class ChatStreamEvent {
   final String refusal;
   /// 输出是否被长度上限截断（finish_reason=length）。
   final bool truncated;
+  /// 生成中失败（末块 error / 流意外中断 / 资源不足）。
+  final String error;
   /// 末块 `delta.server_tool_calls` 的原文（含阅读链接的 signature，多轮必须原样回传）。
   final String serverToolCallsJson;
   /// 客户端工具调用分片：index 相同的分片需要累加。
@@ -84,6 +87,7 @@ class ChatStreamEvent {
       title.isNotEmpty ||
       refusal.isNotEmpty ||
       truncated ||
+      error.isNotEmpty ||
       serverToolCallsJson.isNotEmpty ||
       toolCallIndex >= 0;
 }
@@ -249,6 +253,7 @@ class ChatService {
       }
 
       bool sawDone = false;
+      bool sawError = false;
       final Stream<String> lines = response.stream
           .timeout(_readTimeout)
           .transform(utf8.decoder)
@@ -266,15 +271,25 @@ class ChatService {
         final ChatStreamEvent? event = _parseChunk(data);
         if (event != null && event.hasPayload) {
           yield event;
+          // 官方：生成中失败时最后一个 chunk 带 error、choices 为空、且没有 [DONE]。
+          // 收到错误立即结束，不要把半截回答当成功。
+          if (event.error.isNotEmpty) {
+            sawError = true;
+            break;
+          }
         }
       }
-      if (!sawDone) {
-        // Stream closed without [DONE]: keep the partial content, but let the
-        // caller know the reply ended abnormally.
-        yield const ChatStreamEvent(done: true);
-      } else {
-        yield const ChatStreamEvent(done: true);
+      if (sawError) {
+        return;
       }
+      if (!sawDone) {
+        // 没有 [DONE] 就断流：保留已收到的正文，但必须让上层显示失败而不是成功。
+        yield const ChatStreamEvent(
+          error: '连接中断，回答可能不完整，请重试',
+        );
+        return;
+      }
+      yield const ChatStreamEvent(done: true);
     } on TimeoutException {
       throw const ChatException('网络请求超时，请重试');
     } on http.ClientException catch (error) {
@@ -289,6 +304,12 @@ class ChatService {
       final Object? parsed = jsonDecode(data);
       if (parsed is! Map) {
         return null;
+      }
+      // 生成中失败：官方最后一个 chunk 是 {"error": {...}, "usage": ...}，
+      // 没有 choices，也没有 [DONE]。先于 choices 解析，否则整条错误被丢掉。
+      final String streamError = _errorMessage(parsed['error']);
+      if (streamError.isNotEmpty) {
+        return ChatStreamEvent(error: streamError);
       }
       final Object? choices = parsed['choices'];
       if (choices is! List || choices.isEmpty) {
@@ -320,12 +341,21 @@ class ChatService {
       }
       final Object? titleRaw = delta['title'];
       final String title = titleRaw is String ? titleRaw.trim() : '';
+      final Object? finishRaw = choice['finish_reason'];
+      final String finishReason = finishRaw is String ? finishRaw : '';
       String refusal = '';
-      if (choice['finish_reason'] == 'content_filter') {
+      if (finishReason == 'content_filter') {
         refusal = '内容未通过安全审核';
       }
       // 输出达到长度上限（含「搜索/阅读链接后上下文已用尽」）：正文被截断。
-      final bool truncated = choice['finish_reason'] == 'length';
+      final bool truncated = finishReason == 'length';
+      // 后端资源不足 / 服务端中止：连接可能是 200 + 半截正文，必须按失败处理。
+      String error = '';
+      if (finishReason == 'insufficient_system_resource') {
+        error = '服务资源不足，生成被中断，请重试';
+      } else if (finishReason == 'aborted') {
+        error = '生成被中断，请重试';
+      }
       final Object? deltaRefusal = delta['refusal'];
       if (deltaRefusal is String && deltaRefusal.isNotEmpty) {
         refusal = deltaRefusal;
@@ -368,6 +398,7 @@ class ChatService {
         title: title,
         refusal: refusal,
         truncated: truncated,
+        error: error,
         serverToolCallsJson: toolCallsJson,
         toolCallIndex: callIndex,
         toolCallId: callId,
@@ -587,6 +618,22 @@ class ChatService {
       payload['temperature'] = options.temperature ?? 0.7;
     }
     return payload;
+  }
+
+  /// 末块 `{"error": {...}}` → 可展示的失败文案；没有错误返回空串。
+  static String _errorMessage(Object? raw) {
+    if (raw is! Map) {
+      return '';
+    }
+    final Object? message = raw['message'];
+    if (message is String && message.trim().isNotEmpty) {
+      return message.trim();
+    }
+    final Object? code = raw['code'] ?? raw['type'];
+    if (code is String && code.isNotEmpty) {
+      return '生成失败（$code）';
+    }
+    return '生成失败，请重试';
   }
 
   static String _truncate(String text) =>

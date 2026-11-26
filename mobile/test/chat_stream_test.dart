@@ -163,4 +163,40 @@ void main() {
 
     expect(events.any((ChatStreamEvent e) => e.truncated), isTrue);
   });
+
+  test('末块 error 传播为失败事件（不再静默当成功）', () async {
+    final String body = _sse(<String, Object?>{
+      'error': <String, Object?>{
+        'type': 'api_error',
+        'message': 'The model failed to generate a complete response.',
+      },
+      'usage': <String, Object?>{},
+    });
+
+    final List<ChatStreamEvent> events = await _collect(body);
+
+    expect(events.single.error, contains('failed to generate'));
+    expect(events.single.done, isFalse);
+  });
+
+  test('没有 [DONE] 的断流以 error 收尾，保留已收到的正文', () async {
+    final String body = _sse(_chunk(<String, Object?>{
+      'delta': <String, Object?>{'content': '半句'},
+      'finish_reason': null,
+    }));
+
+    final List<ChatStreamEvent> events = await _collect(body);
+
+    expect(events.first.content, '半句');
+    expect(events.last.error, contains('连接中断'));
+  });
+
+  test('finish_reason=insufficient_system_resource 按失败处理', () async {
+    final String body =
+        '${_sse(_chunk(<String, Object?>{'delta': <String, Object?>{}, 'finish_reason': 'insufficient_system_resource'}))}data: [DONE]\n\n';
+
+    final List<ChatStreamEvent> events = await _collect(body);
+
+    expect(events.any((ChatStreamEvent e) => e.error.contains('资源不足')), isTrue);
+  });
 }
