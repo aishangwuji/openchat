@@ -375,10 +375,10 @@ class _ChatPageState extends State<ChatPage> {
       await _finishRecording(chat, cancel: false);
       return;
     }
-    await _startRecording();
+    await _startRecording(chat);
   }
 
-  Future<void> _startRecording() async {
+  Future<void> _startRecording(ChatController chat) async {
     try {
       if (!await _recorder.hasPermission()) {
         _showSnack('没有麦克风权限，请在系统设置中开启');
@@ -410,9 +410,15 @@ class _ChatPageState extends State<ChatPage> {
         if (!mounted || op != _recordOp || !_recording) {
           return;
         }
-        setState(() {
-          _recordSeconds = DateTime.now().difference(_recordStartedAt).inSeconds;
-        });
+        final int seconds =
+            DateTime.now().difference(_recordStartedAt).inSeconds;
+        setState(() => _recordSeconds = seconds);
+        if (seconds >= AsrService.maxDurationSeconds) {
+          _recordTimer?.cancel();
+          _recordTimer = null;
+          _showSnack('录音已达 ${AsrService.maxDurationSeconds} 秒上限，正在识别');
+          unawaited(_finishRecording(chat, cancel: false));
+        }
       });
       await _amplitudeSub?.cancel();
       // 振幅用于录音波形：dBFS 常见 -60~0，归一到 0~1 再画。
@@ -436,6 +442,9 @@ class _ChatPageState extends State<ChatPage> {
     ChatController chat, {
     required bool cancel,
   }) async {
+    if (!_recording) {
+      return;
+    }
     final int op = ++_recordOp;
     _recordTimer?.cancel();
     _recordTimer = null;

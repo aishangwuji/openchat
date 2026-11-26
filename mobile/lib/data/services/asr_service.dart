@@ -12,6 +12,8 @@ class AsrService {
 
   static const String _endpoint = 'https://api.deepseek.com/v1/tools/asr';
   static const int _maxBytes = 8 * 1024 * 1024;
+  /// 官方单次识别时长上限：120 秒。UI 到点自动停录，避免录满 3 分钟才 400。
+  static const int maxDurationSeconds = 120;
   static const Duration _timeout = Duration(seconds: 180);
 
   /// 转写一段 WAV；返回文本（可能为空），失败抛 [AsrException]。
