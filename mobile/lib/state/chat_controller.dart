@@ -27,6 +27,9 @@ CharacterCard emptyCharacter() => CharacterCard(
       createdAt: 0,
     );
 
+/// 单条消息最多引用的文档数（官方文件解析限制）。
+const int maxAttachmentsPerMessage = 20;
+
 /// DeepSeek 服务端扩展能力是否要求 `deepseek-flash`。
 ///
 /// Business Rule: 官方《联网工具》《文件解析》《模型内容安全》《会话标题》都要求
@@ -1290,6 +1293,11 @@ class ChatController extends ChangeNotifier {
     }
     if (_currentProviderId != 'deepseek') {
       _noticeText = '文件解析仅支持 DeepSeek 服务商';
+      notifyListeners();
+      return false;
+    }
+    if (_pendingAttachments.length >= maxAttachmentsPerMessage) {
+      _noticeText = '每条消息最多引用 $maxAttachmentsPerMessage 个文档';
       notifyListeners();
       return false;
     }
