@@ -197,8 +197,10 @@ const List<String> _enWeekdays = <String>[
 class ChatService {
   const ChatService._();
 
-  static const int _maxHistoryMessages = 20;
-  static const int _maxHistoryChars = 12000;
+  // 历史预算：DeepSeek 模型有 1M 上下文，旧的 20 条/12000 字会把带 file_id 的
+  // 附件轮次和带 signature 的阅读链接轮次在十几轮后截掉，造成「突然失忆」。
+  static const int _maxHistoryMessages = 60;
+  static const int _maxHistoryChars = 100000;
 
   static const Duration _connectTimeout = Duration(seconds: 15);
   static const Duration _readTimeout = Duration(seconds: 90);

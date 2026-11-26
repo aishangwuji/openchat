@@ -46,6 +46,19 @@ bool requiresDeepSeekFlash({
   return webSearch || files || readUrl || safety || title;
 }
 
+/// 是否进入请求历史：正文、附件、服务端工具调用任一非空即可。
+///
+/// Business Rule: 只按 `content` 判空会把「只传文件」「只读链接/拒答但保留
+/// signature」的轮次整条丢掉，表现为下一轮模型突然看不到文档或网页。
+bool isReplayableMessage(ChatMessage message) {
+  if (!message.isUser && !message.isAssistant) {
+    return false;
+  }
+  return message.content.isNotEmpty ||
+      message.attachments.isNotEmpty ||
+      message.serverToolCallsJson.isNotEmpty;
+}
+
 /// Owns session tree state, streaming and model selection.
 ///
 /// Concurrency notes:
@@ -230,10 +243,7 @@ class ChatController extends ChangeNotifier {
 
   List<ChatMessage> historyTo(ChatSession session, String targetId) {
     final List<ChatMessage> full = pathToNode(session, targetId);
-    return full
-        .where((ChatMessage m) =>
-            (m.isUser || m.isAssistant) && m.content.isNotEmpty)
-        .toList(growable: false);
+    return full.where(isReplayableMessage).toList(growable: false);
   }
 
   List<String> siblingsOf(ChatSession session, ChatMessage message) {
