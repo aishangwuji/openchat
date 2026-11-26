@@ -640,4 +640,3 @@ List<MessageAttachment> _parseAttachments(Object? raw) {
   }
   return out;
 }
-
