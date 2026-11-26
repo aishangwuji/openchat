@@ -242,7 +242,8 @@ class _AssistantBubble extends StatelessWidget {
               style: TextStyle(fontSize: 12, color: c.textMuted),
             ),
           ),
-        if (message.searching && message.content.isEmpty)
+        if (message.content.isEmpty &&
+            (message.searching || (message.searchHint ?? '').isNotEmpty))
           Padding(
             padding: const EdgeInsets.only(top: 6, left: 2),
             child: Text(

@@ -199,4 +199,62 @@ void main() {
 
     expect(events.any((ChatStreamEvent e) => e.error.contains('资源不足')), isTrue);
   });
+
+  test('阅读链接失败带 error.code 的提示能到达 UI', () async {
+    final String body =
+        '${_sse(_chunk(<String, Object?>{
+              'delta': <String, Object?>{},
+              'server_tool_event': <String, Object?>{
+                'type': 'call_completed',
+                'step': 0,
+                'call': <String, Object?>{
+                  'index': 0,
+                  'id': 'r1',
+                  'type': 'deepseek_read_url',
+                  'status': 'failed',
+                  'error': <String, Object?>{'code': 'url_not_allowed'},
+                },
+              },
+            }))}data: [DONE]\n\n';
+
+    final List<ChatStreamEvent> events = await _collect(body);
+
+    expect(
+      events.any(
+        (ChatStreamEvent e) =>
+            e.searchHint.contains('链接读取失败') &&
+            e.searchHint.contains('url_not_allowed'),
+      ),
+      isTrue,
+    );
+  });
+
+  test('搜索失败也给出可见提示', () async {
+    final String body =
+        '${_sse(_chunk(<String, Object?>{
+              'delta': <String, Object?>{},
+              'server_tool_event': <String, Object?>{
+                'type': 'call_completed',
+                'step': 0,
+                'call': <String, Object?>{
+                  'index': 0,
+                  'id': 's1',
+                  'type': 'deepseek_web_search',
+                  'status': 'failed',
+                  'error': <String, Object?>{'code': 'unavailable'},
+                },
+              },
+            }))}data: [DONE]\n\n';
+
+    final List<ChatStreamEvent> events = await _collect(body);
+
+    expect(
+      events.any(
+        (ChatStreamEvent e) =>
+            e.searchHint.contains('搜索失败') &&
+            e.searchHint.contains('unavailable'),
+      ),
+      isTrue,
+    );
+  });
 }

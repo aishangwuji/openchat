@@ -657,6 +657,7 @@ class ChatService {
       return const _ToolEvent();
     }
     final String kind = call['kind'] is String ? call['kind'] as String : '';
+    final String callType = call['type'] is String ? call['type'] as String : '';
     // 只关心联网能力；明确是别的工具（如生图）才丢弃，kind 缺失一律放行。
     if (kind.isNotEmpty && !_webToolKinds.contains(kind)) {
       return const _ToolEvent();
@@ -705,8 +706,20 @@ class ChatService {
       }
     }
     if (call['status'] == 'failed') {
+      // 失败时 `call_completed` 可能不带 kind/action，用 type 兜底区分阅读链接与搜索。
+      final bool readLink = actionType == 'read_link' ||
+          kind == 'read_link' ||
+          callType == 'deepseek_read_url';
+      final String what = readLink
+          ? '链接读取失败'
+          : (actionType == 'open_page' ? '网页打开失败' : '搜索失败');
+      final Object? errorRaw = call['error'];
+      String code = '';
+      if (errorRaw is Map && errorRaw['code'] is String) {
+        code = errorRaw['code'] as String;
+      }
       return _ToolEvent(
-        hint: actionType == 'read_link' ? '链接读取失败，继续整理答案…' : '',
+        hint: '$what${code.isEmpty ? '' : '（$code）'}，继续整理答案…',
         sources: sources,
       );
     }
