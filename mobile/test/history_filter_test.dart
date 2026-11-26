@@ -101,4 +101,24 @@ void main() {
     expect(parts.single['type'], 'file');
     expect(parts.single['file_id'], 'file-1');
   });
+
+  test('空回答判定：正文/思考/工具调用/生图任一存在才算有产出', () {
+    expect(hasAssistantOutput(_message(MessageRole.assistant, '')), isFalse);
+
+    final ChatMessage withReasoning =
+        _message(MessageRole.assistant, '');
+    withReasoning.reasoningContent = '先想一想';
+    expect(hasAssistantOutput(withReasoning), isTrue);
+
+    expect(
+      hasAssistantOutput(
+        _message(MessageRole.assistant, '', serverToolCalls: '[]'),
+      ),
+      isTrue,
+    );
+
+    final ChatMessage withImage = _message(MessageRole.assistant, '');
+    withImage.imageState = 'generating';
+    expect(hasAssistantOutput(withImage), isTrue);
+  });
 }

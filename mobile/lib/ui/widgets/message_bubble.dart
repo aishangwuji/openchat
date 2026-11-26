@@ -270,7 +270,21 @@ class _AssistantBubble extends StatelessWidget {
               apiKey: controller.currentApiKey,
               voice: controller.ttsVoice,
             ),
-          ),        if (message.status == MessageStatus.error)
+          ),        if (!streaming &&
+            message.status != MessageStatus.error &&
+            message.content.isEmpty &&
+            reasoning.isEmpty &&
+            message.imageState == null &&
+            message.imageUrls.isEmpty &&
+            message.serverToolCallsJson.isEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 6, left: 2),
+            child: Text(
+              '本轮没有返回内容，长按可重新生成',
+              style: TextStyle(fontSize: 12, color: c.textMuted),
+            ),
+          ),
+        if (message.status == MessageStatus.error)
           Padding(
             padding: const EdgeInsets.only(top: 8, left: 2),
             child: Text(

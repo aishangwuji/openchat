@@ -62,6 +62,18 @@ bool isReplayableMessage(ChatMessage message) {
       message.serverToolCallsJson.isNotEmpty;
 }
 
+/// 助手本轮是否有可展示产出：正文 / 思考 / 服务端工具调用 / 生图结果。
+///
+/// Business Rule: 流正常关闭但一条产出都没有时不能落成 success，否则界面只剩
+/// 一个空白气泡（用户表现为「AI 回答不显示」）；拒答与错误走各自的状态。
+bool hasAssistantOutput(ChatMessage message) {
+  return message.content.isNotEmpty ||
+      (message.reasoningContent ?? '').isNotEmpty ||
+      message.serverToolCallsJson.isNotEmpty ||
+      message.imageState != null ||
+      message.imageUrls.isNotEmpty;
+}
+
 /// Owns session tree state, streaming and model selection.
 ///
 /// Concurrency notes:
@@ -902,10 +914,17 @@ class ChatController extends ChangeNotifier {
       if (titleEnabled) {
         session.autoTitled = true;
       }
-      if (assistant.content.isEmpty && assistant.status == MessageStatus.streaming) {
-        assistant.status = MessageStatus.success;
-      } else if (assistant.status == MessageStatus.streaming) {
-        assistant.status = MessageStatus.success;
+      if (assistant.status == MessageStatus.streaming) {
+        if (hasAssistantOutput(assistant)) {
+          assistant.status = MessageStatus.success;
+        } else if (assistant.truncated) {
+          assistant.status = MessageStatus.error;
+          assistant.errorMessage = '回答达到长度上限，可能不完整';
+        } else {
+          // 流正常结束但没有任何产出：不能留一个空白气泡。
+          assistant.status = MessageStatus.error;
+          assistant.errorMessage = '本轮没有返回内容，请重试';
+        }
       }
       if ((assistant.reasoningContent ?? '').isNotEmpty) {
         if (assistant.thinkingDuration == null) {
