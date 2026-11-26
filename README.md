@@ -2,7 +2,7 @@
 
 一个鸿蒙（HarmonyOS / ArkTS）小应用，两个目标合在一个壳里：
 
-1. **余额监控**：统一查看各家大模型 / 云服务的账户余额（DeepSeek、Kimi、小米 MiMo 三家 Bearer 厂商，外加百智云积分——Cookie 登录态，附签到跳转）。
+1. **余额监控**：查看 DeepSeek 账户余额（单一服务商，Bearer API Key）。
 2. **对话客户端**：贴近 DeepSeek 官方 App 的聊天体验——联网搜索、正文引用角标、来源胶囊、文件解析（PDF/Office/图片）、图片视觉输入、语音输入与朗读。
 
 仓库：GitHub [aishangwuji/openchat](https://github.com/aishangwuji/openchat) ·
@@ -12,17 +12,17 @@ Gitee 为主干（`origin`），GitHub 由 Actions 自动镜像（`.github/workf
 > 源码开源，但**不包含签名材料**。鸿蒙应用必须签名才能安装，签名与开发者账号绑定，
 > 每人用自己的账号生成——步骤在下面和 [docs/signing.md](docs/signing.md)。
 
-> **移动端说明**：mobile/（Flutter，Android/iOS）已按 2026-11-20 追平鸿蒙端主要能力：
+> **移动端说明**：mobile/（Flutter，Android/iOS）已追平鸿蒙端主要能力：
 > 应用身份（com.example.openchat）、检查更新、设置「工具」分组与开关、联网搜索
-> （DeepSeek 服务端 + 百智云）、引用角标/来源胶囊、文件解析与图片视觉、语音输入/朗读、
-> 生图、内容安全；2026-11-23 补齐服务端会话标题、阅读链接与 `latest_reminder`。
+> （DeepSeek 服务端）、引用角标/来源胶囊、文件解析与图片视觉、语音输入/朗读、
+> 内容安全；2026-11-23 补齐服务端会话标题、阅读链接与 `latest_reminder`。
+> 2026-11-26 两端均收敛为 **DeepSeek 单服务商**，百智云联网/生图与其余厂商已移除。
 > 两端本地存储独立（Key 需各自配置）。仍未对齐：蓝白配色之外的聊天版式微调、
 > 分享/导出等长尾差异，见 [techdebt/TD-006](techdebt/TD-006-mobile-web-search-parity.md)。
 ## 特性
 
-- **资产**：密钥只存本机 Preferences；余额自动刷新，失败保留上次结果。百智云按「积分」展示
-  可用/临时/永久/冻结，签到按钮跳浏览器完成人机验证（应用不代签）。
-- **对话**：多服务商 / 多模型、流式输出与思考过程、Markdown + 代码高亮、消息分支（编辑/重新生成）、会话自动标题。
+- **资产**：DeepSeek API Key 只存本机；余额自动刷新，失败保留上次结果。
+- **对话**：DeepSeek 多模型、流式输出与思考过程、Markdown + 代码高亮、消息分支（编辑/重新生成）、会话自动标题。
 - **联网搜索**：DeepSeek 服务端 `deepseek_web_search` 工具，SSE 解析来源，正文注入引用角标，来源可点开。
 - **阅读链接**：`deepseek_read_url` 让模型读用户消息里的 URL；网页正文加密在 `signature` 里，
   随消息持久化并在后续轮次原样回传。
@@ -169,21 +169,17 @@ TextArea/语音 → ChatView.sendMessage()
 
 ```
 Assets 页面 → BalanceService → ProviderRegistry 取 endpoint/字段映射
-  → 按 balanceType 分支：Bearer（Authorization 头）/ CookieSession（Cookie + 浏览器 UA）
-  → GET 余额接口 → 通用解析（含积分明细）→ 更新卡片（失败保留上次结果）
+  → Bearer（Authorization 头）→ GET 余额接口 → 通用解析 → 更新卡片（失败保留上次结果）
 ```
 
-百智云用 Cookie 引擎：接口金额单位是「分」，除以 100 后按积分展示（币种占位符 `CREDITS`，
-不与人民币相加）；签到现在浏览器里手动过验证码，应用只提供 `https://baizhi.cloud/console/apps`
-的跳转入口。Cookie 获取方式：浏览器登录 baizhi.cloud → 开发者工具 Network → 复制任一请求的
-`Cookie` 请求头（必须含 `baizhi_session`），整行粘进「设置 百智云 的Cookie」弹窗即可。
+注册表只保留 DeepSeek；接口返回 `balance_infos` 数组，按 `total_balance` 与 `currency` 展示。
 
 ### 本地存储
 
 | 数据 | 位置 | 说明 |
 |---|---|---|
 | 会话、角色卡 | Preferences `chat_sessions` 等 | JSON 明文 |
-| 各厂商 API Key / 百智云 Cookie | Preferences `key_<providerId>` | 明文，见 TD-001 / TD-009 |
+| DeepSeek API Key | Preferences `key_deepseek` | 明文，见 TD-001 |
 | 外观/字号/语音/应用锁 | Preferences 同名键 | 应用锁含开关与解锁方式，部分同步到 AppStorage |
 | TTS 音频 | `cacheDir/tts_cache` | FNV-1a 键，16 文件/40MB 上限 |
 | 录音、上传副本 | `cacheDir` | 用完即删 |
@@ -202,8 +198,8 @@ Assets 页面 → BalanceService → ProviderRegistry 取 endpoint/字段映射
 | `services/UpdateService.ets` | 版本比较、Gitee/GitHub 双源 release 检查、静默节流 |
 | `services/ChatStorageService.ets` | 会话/角色卡持久化与边界校验 |
 | `services/AuthService.ets` | 系统身份认证：应用锁按所选方式（人脸/指纹/密码）收窄凭据类型，不可用时回退 |
-| `services/ProviderRegistry.ets` | 各厂商端点、字段路径、换算因子、凭证形态（加厂商只改这里 + 图标） |
-| `services/BalanceService.ets` | 余额查询引擎：Bearer / CookieSession 两条通道 + 通用解析（积分明细） |
+| `services/ProviderRegistry.ets` | 单服务商注册表（DeepSeek 端点与余额字段映射） |
+| `services/BalanceService.ets` | 余额查询引擎：Bearer 通道 + 通用解析 |
 
 ## 关键设计决策
 
@@ -256,8 +252,7 @@ Assets 页面 → BalanceService → ProviderRegistry 取 endpoint/字段映射
 
 ## 数据与安全
 
-- API Key / 百智云 Cookie 存本机 Preferences（`key_<providerId>`），不上传；日志统一掩码
-  （Key 用 `maskKey`，Cookie 只记长度）。
+- API Key 存本机 Preferences（`key_deepseek`），不上传；日志统一掩码（`maskKey`）。
 - 会话、角色卡以 JSON 存本机 Preferences，**是明文**（见 `techdebt/TD-003`）。
 - 应用锁只做本机门禁，不替代系统级加密；解锁方式（人脸/指纹/密码）只是收窄系统验证，
   所选凭据在设备上被删除时会回退到系统自选，避免把用户锁在门外。

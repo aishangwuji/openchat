@@ -46,29 +46,19 @@
   `getUIContext().showActionSheet({title, message, sheets:[{title, action}]})`（message 必填），
   素文本不好看时直接自绘底部面板（遮罩点空白收回＋滑入 transition，见添加弹窗/操作菜单实现）
 
-### 4. 本项目架构约定（加厂商/改功能前先看）
+### 4. 本项目架构约定（改功能前先看）
 
-- 加 Bearer 类厂商 = 纯加数据：`services/ProviderRegistry.ets` 追一条 `ProviderDefinition`
- （endpoint/responsePath/字段名/换算因子/成功码对照官方文档填）＋图标 png 丢进
-  `resources/base/media/` ＋ `Index.providerIcon` 加两行映射；非 Bearer 类需在
-  `BalanceService.ets` 按 `balanceType` 加引擎分支（智额有 hmac/aliyunBss 现成逻辑可搬）
-- Cookie 类厂商模板（2026-11-24 百智云落地，两端同构）：`balanceType: CookieSession` +
-  `credentialKind: Cookie` + `credentialRequiredFragment`（本地校验，如 `baizhi_session`）+
-  `userAgent`（与取 Cookie 的浏览器一致，防 WAF）；请求走 `Cookie` 头而非 Authorization，
-  解析复用同一份 `parseBody`，别复制字段映射。积分类金额用占位符币种 `CREDITS`
-  （`unitLabel` 显示「积分」），避免与人民币相加。需要人机验证的写操作（签到）只做跳转，
-  应用不代签。图标由 `scripts/make_baizhi_icon.py` 生成（PIL，两端产物一致）。
-  **余额专用供应商必须 `chatCapable: false`**：注册表同时驱动资产页与聊天页，不置 false 时
-  ChatView 会把 Cookie 当 API Key 发到 `/v1/models`、`/v1/chat/completions`（2026-11-24 实测踩过，
-  用 `chatProviders()` 过滤）。
-- 对话工具一律「声明式」（2026-11-25 用户明确）：`generate_image` 只按「功能开关 + 服务商能力」
-  （`featureImage && providerId == 'deepseek'`）声明，是否画由模型自判；**不要再加关键词表**
-  （旧 `wantsImage/wantsImageWithContext` 已删——关键词覆盖不到「生成一张图片」这类说法，
-  直接导致触发不了）。缺百智云生图 Key 时走执行阶段报错（气泡里显示「未配置…Key」），
-  不要靠不声明工具来静默兜底。联网搜索 `deepseek_web_search` 同形：开关一打开就声明，模型决定搜不搜。
+- **单服务商（2026-11-26 起）**：资产与对话只保留 DeepSeek。`ProviderRegistry.ets` 的
+  `PROVIDERS` 只有一条；不要重新引入 Kimi / MiMo / 百智云 / OpenRouter / Novita / StepFun。
+  余额只走 Bearer（`Authorization: Bearer <key>`），不再有 Cookie / 积分 / 签到分支。
+- 加回一家 Bearer 厂商 = 纯加数据：注册表追一条 `ProviderDefinition`（endpoint/responsePath/
+  字段名）＋图标 png 丢进 `resources/base/media/` ＋ `providerIcon` 加静态映射；同时要检查
+  资产页、设置页、聊天页的 provider 选择与 Key 存储，不要只改注册表。
+- 对话工具：联网搜索 `deepseek_web_search` 与阅读链接 `deepseek_read_url` 按开关声明，
+  模型决定是否使用；客户端函数工具（`generate_image`）已随百智云生图整体删除。
 - 错误通道：`throw Error` = 瞬时传输失败（可重试＋keep-last-good）；
   `return {success:false}` = 确定性失败（空Key/未知供应商/401/非2xx/解析失败）
-- 安全红线：Key 只存本机 Preferences（分供应商 `key_<id>`），日志一律 `maskKey`，
+- 安全红线：Key 只存本机 Preferences（`key_<id>`），日志一律 `maskKey`，
   提交前 `git grep "sk-[A-Za-z0-9]\{8,\}"` 全历史扫一遍；技术债记 `techdebt/`，认知记 `systemmap/
 - 提交纪律（2026-11-19 明确）：一个提交只做一件事——功能 / 样式改版 / 文档 / 顺带修复各自独立，
   不许「多功能合集」。同一文件里混了多件事时，用「备份完整版 → 还原 → 只重放单件 → 提交 →
@@ -106,20 +96,17 @@
   `file_picker`、`image_picker`、`path_provider`。
 - 架构：`lib/data`（模型/服务/注册表）→ `lib/state`（ChangeNotifier）→
   `lib/ui`（页面/组件）。颜色只走 `core/theme/app_colors.dart` 语义 token。
-- 能力与服务位置（追平鸿蒙端）：
-  - 设置「工具」：服务商（DeepSeek/百智云）、两套百智云 Key、7 个功能开关、所在地；
+- 能力与服务位置（单服务商后）：
+  - 设置「工具」：DeepSeek API Key（资产页录入）、6 个功能开关、所在地；
   - `services/update_service.dart`：Gitee→GitHub 双源检查更新；
   - `services/apk_update_service.dart` + `android/.../ApkUpdateChannel.kt`：Android 应用内下载
     APK（系统 DownloadManager，后台可继续）→ FileProvider → 系统安装页；进度走 EventChannel；
   - `services/chat_service.dart`：`deepseek_web_search`、`deepseek_read_url`、
-    `generate_image` 函数工具、`safety_check`、`title.enabled`、`delta.annotations` 引用、
+    `safety_check`、`title.enabled`、`delta.annotations` 引用、
     `delta.server_tool_calls`（含阅读链接 signature）原样留存与回传、`latest_reminder` 注入；
-  - `services/baizhi_web_search_service.dart`：百智云客户端检索 + 上下文注入；
   - `services/file_upload_service.dart`：Files API 上传（图片走 user_data 视觉）；
   - `services/asr_service.dart` / `services/tts_service.dart`：语音输入与朗读（含缓存）；
-  - `services/image_gen_service.dart`：百智云生图任务创建/轮询；
-  - 存储键：Preferences `feature_*` / `web_search_provider` / `tts_voice` / `user_location`，
-    KeyStore `key_baizhi_web` / `key_baizhi_image`。
+  - 存储键：Preferences `feature_*` / `tts_voice` / `user_location`，KeyStore `key_deepseek`。
 - 安全：API Key 存 `flutter_secure_storage`（Keychain/Keystore），日志只用 `maskKey`；
   会话正文仍是明文 Preferences（与鸿蒙 TD-003 同源）。
 - Android 真机（2026-11-26 起本机可用）：`adb` 在 `D:\tools\scrcpy-win64-v5.0.1\adb.exe`（不在 PATH），
@@ -129,7 +116,7 @@
   `adb logcat -s flutter:*`。该机开着平行空间/分身（user 100/128），`pm list packages` 不带
   `--user 0` 会报 SecurityException；Flutter 语义树默认不上报，`uiautomator dump` 拿不到文字，
   UI 层验证要么用 `integration_test`，要么临时写一个探针入口（`flutter build apk -t lib/xxx.dart`）。
-- 验证边界：录音、相册、文件选择、音频播放、生图仍需按 `techdebt/TD-004-*.md` 的真机回归清单实测。
+- 验证边界：录音、相册、文件选择、音频播放仍需按 `techdebt/TD-004-*.md` 的真机回归清单实测。
 - **应用内更新（2026-11-26 落地，别改回跳浏览器）**：
   - 链路：`services/apk_update_service.dart`（Method/Event 通道）↔
     `android/.../ApkUpdateChannel.kt`；UI 是 `ui/widgets/update_download_sheet.dart`（进度面板）

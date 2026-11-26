@@ -31,14 +31,26 @@ covered_paths:
   - BalanceApp/entry/src/main/ets/services/WebSearchService.ets
   - BalanceApp/entry/src/main/ets/components/WebSearchButton.ets
   - BalanceApp/entry/src/main/ets/services/TtsService.ets
-last_verified_commit: 5e7d309
-last_verified: 2026-11-25
+last_verified_commit: 7d294ee
+last_verified: 2026-11-26
 ---
 
 > 前瞻设计：多角色群聊（@ + 记忆隔离）详见 `docs/group-chat-design.md`（原设计中的 Jev 路由已随
 > 上下文净化移除，见下方「已移除」小节）。
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
+
+## 单服务商收敛（2026-11-26，构建通过）
+
+- `ProviderRegistry.ets` 的 `PROVIDERS` 只剩 DeepSeek；`ProviderCategory` 仅「国内官方」。
+- 余额只走 Bearer：`/user/balance` → `balance_infos[]` 的 `total_balance/currency`；
+  Cookie 引擎、积分明细、签到、`CredentialKind/BalanceQueryType` 全部删除。
+- 资产页删除服务商分类切换与 Cookie/积分/签到 UI；添加/更换 Key 只收 API Key。
+- 设置页删除「联网搜索服务商」与两套百智云 Key、图片生成开关；聊天页删除服务商选择器、
+  百智云客户端检索与生图（`ImageGenService`/`BaizhiWebSearchService`/`generate_image`）。
+- ChatService 删除 Kimi/MiMo 请求体分支、Preserved Thinking 回传与客户端工具调用；
+  历史空回合（无正文、无 server_tool_calls）直接丢弃。
+- 本文件下方 2026-11-24/25 的百智云积分、Cookie、生图小节均为历史记录。
 
 ## 长会话空回答可观测性修复（2026-11-26，构建通过）
 

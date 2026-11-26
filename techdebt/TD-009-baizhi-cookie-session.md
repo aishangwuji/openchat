@@ -1,6 +1,6 @@
 # TD-009 百智云 Cookie 等同登录态，鸿蒙端仍存 Preferences 明文；真实接口未实测
 
-- 状态：待评估
+- 状态：已关闭（2026-11-26 百智云整体移除，Cookie 引擎与存储代码已删除）
 - 原因：
   1. 鸿蒙端沿用资产页既有存储（Preferences `balance_prefs` 的 `key_baizhi`），存的是
      `baizhi_session=...` 整段 Cookie。它与 API Key 不同——**等同账号完整登录权限**

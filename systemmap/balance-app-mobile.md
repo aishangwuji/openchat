@@ -11,12 +11,10 @@ covered_paths:
   - mobile/lib/data/models/provider.dart
   - mobile/lib/data/services/asr_service.dart
   - mobile/lib/data/services/auth_service.dart
-  - mobile/lib/data/services/baizhi_web_search_service.dart
   - mobile/lib/data/services/balance_service.dart
   - mobile/lib/data/services/chat_service.dart
   - mobile/lib/data/services/chat_storage_service.dart
   - mobile/lib/data/services/file_upload_service.dart
-  - mobile/lib/data/services/image_gen_service.dart
   - mobile/lib/data/services/key_store.dart
   - mobile/lib/data/services/model_service.dart
   - mobile/lib/data/services/preferences_service.dart
@@ -50,11 +48,22 @@ covered_paths:
   - mobile/test/tts_limit_test.dart
   - mobile/test/file_upload_limit_test.dart
   - mobile/test/signature_limit_test.dart
-last_verified_commit: 7c6c785
+last_verified_commit: 7d294ee
 last_verified: 2026-11-26
 ---
 
 # BalanceApp Mobile（Flutter Android/iOS）systemmap
+
+## 单服务商收敛（2026-11-26，analyze/test 通过）
+
+- 注册表 `providers` 只剩 DeepSeek；`ProviderCategory` 只保留 `cnOfficial`。
+- 余额只走 Bearer：`https://api.deepseek.com/user/balance`，解析 `balance_infos[]` 的
+  `total_balance/currency`；Cookie、积分、签到、`CreditDetail` 全部删除。
+- 聊天服务商选择器删除；旧会话 `providerId` 存储值统一归一为 `deepseek`，
+  旧模型不在 DeepSeek 列表时由 `refreshModelList` 回落。
+- 百智云联网搜索（`baizhi_web_search_service.dart`）与生图（`image_gen_service.dart`）、
+  对应 Key/开关/UI/`generate_image` 工具全部删除；设置「工具」只剩 5 个功能开关与所在地。
+- 本文件下方 2026-11-24/25 的百智云、Cookie、生图小节均为历史记录，不再代表当前实现。
 
 > 与鸿蒙端 `systemmap/balance-app.md` 并列：同一产品、不同代码库、互不共享本地数据。
 > 本文件只描述 `mobile/` 的 Flutter 实现；鸿蒙端的协议细节仍以原 systemmap 为准。
