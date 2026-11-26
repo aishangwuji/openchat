@@ -102,6 +102,9 @@ List<Map<String, dynamic>>? pruneServerToolCalls(List<Object?> raw) {
 }
 
 /// 发送端抓取：末块 server_tool_calls 经裁剪后编码；没有需要回传的内容返回空串。
+///
+/// Business Rule: 超过存储上限时按「调用」粒度从新到旧保留，不能整轮返回空串——
+/// 一次读多个长网页时，只要有一个 signature 超大，旧实现会把所有网页都丢掉。
 String encodeServerToolCalls(Object? raw) {
   if (raw is! List) {
     return '';
@@ -111,7 +114,43 @@ String encodeServerToolCalls(Object? raw) {
     return '';
   }
   final String encoded = jsonEncode(pruned);
-  return encoded.length <= maxServerToolCallsChars ? encoded : '';
+  if (encoded.length <= maxServerToolCallsChars) {
+    return encoded;
+  }
+  const int reserve = 256;
+  final List<Map<String, dynamic>> keptSteps = <Map<String, dynamic>>[];
+  int used = 0;
+  for (final Map<String, dynamic> step in pruned.reversed) {
+    final Object? rawCalls = step['calls'];
+    if (rawCalls is! List) {
+      continue;
+    }
+    final List<Object?> keptCalls = <Object?>[];
+    for (final Object? call in rawCalls.reversed) {
+      final int size = jsonEncode(call).length;
+      if (used + size + reserve > maxServerToolCallsChars) {
+        continue;
+      }
+      keptCalls.insert(0, call);
+      used += size;
+    }
+    if (keptCalls.isEmpty) {
+      continue;
+    }
+    final Map<String, dynamic> keptStep = <String, dynamic>{'calls': keptCalls};
+    if (step['index'] is num) {
+      keptStep['index'] = step['index'];
+    }
+    if (step['reasoning_content'] is String) {
+      keptStep['reasoning_content'] = step['reasoning_content'];
+    }
+    keptSteps.insert(0, keptStep);
+  }
+  if (keptSteps.isEmpty) {
+    return '';
+  }
+  final String result = jsonEncode(keptSteps);
+  return result.length <= maxServerToolCallsChars ? result : '';
 }
 
 /// 存储边界：结构不合法一律按空处理，避免把脏数据回传给接口。
