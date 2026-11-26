@@ -730,15 +730,16 @@ class _ChatPageState extends State<ChatPage> {
                   onToggle: chat.setEnableWebSearch,
                 ),
                 const Spacer(),
-                _composerButton(
-                  icon: Icons.add_rounded,
-                  tooltip: '添加文件或图片',
-                  color: c.textPrimary,
-                  busy: chat.attachmentBusy,
-                  onTap: chat.attachmentBusy
-                      ? null
-                      : () => _pickAttachment(context, chat),
-                ),
+                if (chat.currentProviderId == 'deepseek')
+                  _composerButton(
+                    icon: Icons.add_rounded,
+                    tooltip: '添加文件或图片',
+                    color: c.textPrimary,
+                    busy: chat.attachmentBusy,
+                    onTap: chat.attachmentBusy
+                        ? null
+                        : () => _pickAttachment(context, chat),
+                  ),
                 if (chat.isGenerating)
                   _composerButton(
                     icon: Icons.stop_rounded,
@@ -763,7 +764,8 @@ class _ChatPageState extends State<ChatPage> {
                       ),
                     ),
                   )
-                else if (chat.featureAsr)
+                else if (chat.featureAsr &&
+                    chat.currentProviderId == 'deepseek')
                   _composerButton(
                     icon: _recording
                         ? Icons.stop_circle_outlined

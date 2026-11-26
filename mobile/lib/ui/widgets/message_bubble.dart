@@ -259,6 +259,7 @@ class _AssistantBubble extends StatelessWidget {
               onTap: () => showSourcePanel(context, message.sources),
             ),
           ),        if (controller.featureTts &&
+            controller.currentProviderId == 'deepseek' &&
             !streaming &&
             message.content.isNotEmpty)
           Padding(
