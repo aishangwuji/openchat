@@ -13,18 +13,23 @@
 
 ```powershell
 # BalanceApp/AppScope/app.json5
-"versionCode": 1000003,
-"versionName": "1.0.3",
+"versionCode": 1000004,
+"versionName": "1.0.4",
 
 # mobile/pubspec.yaml
-version: 1.0.3+4          # versionName+versionCode
+version: 1.0.4+5          # versionName+versionCode
 
 # mobile/lib/core/app_version.dart
-const String appVersion = '1.0.3';
+const String appVersion = '1.0.4';
 ```
 
 版本比较是逐段数值比较（`1.0.10 > 1.0.9`），不要用日期式版本号。
 `app_version.dart` 是移动端「检查更新」比较的当前版本，漏改会一直提示更新。
+
+> **不要改 Android `applicationId`**：它是安装身份，不是展示名。v1.0.3 曾把
+> `com.example.openchat` 改成 `com.aishangwuji.openchat`，v1.0.2 用户升级后会装成
+> 第二个应用，旧聊天记录/API Key 全部读不到，v1.0.3 已撤回。要换包名必须先做数据
+> 导出/导入迁移（见 `techdebt/TD-015`）；`namespace` 可以单独改。
 
 > 打包前确认本机签名有效（`bundleName` 与证书一致）。签名与安装的机制见
 > [signing.md](signing.md)；仓库里不含签名材料，Release 里的 HAP 是作者调试签名，
@@ -82,10 +87,10 @@ gh api repos/aishangwuji/openchat/git/ref/tags/v1.0.1  # 确认 tag 已同步
 ## 4. 发 GitHub Release
 
 ```powershell
-gh release create v1.0.3 "dist/openchat-1.0.3.hap" "dist/openchat-1.0.3.apk" `
+gh release create v1.0.4 "dist/openchat-1.0.4.hap" "dist/openchat-1.0.4.apk" `
   --repo aishangwuji/openchat `
-  --title "v1.0.3" `
-  --notes-file "dist/release-notes-1.0.3.md"
+  --title "v1.0.4" `
+  --notes-file "dist/release-notes-1.0.4.md"
 ```
 
 `gh` 走 API 上传资产，实测可用（不受 `github.com` 直连被重置影响）。
@@ -96,16 +101,16 @@ gh release create v1.0.3 "dist/openchat-1.0.3.hap" "dist/openchat-1.0.3.apk" `
 ## 5. 发 Gitee Release 并挂 HAP/APK
 
 ```powershell
-gitee release create --repo aishangwuji/openchat --tag v1.0.3 `
-  -n "v1.0.3" -b (Get-Content -Raw dist/release-notes-1.0.3.md)
+gitee release create --repo aishangwuji/openchat --tag v1.0.4 `
+  -n "v1.0.4" -b (Get-Content -Raw dist/release-notes-1.0.4.md)
 ```
 
 Gitee CLI 的 `release create` 没有 `--attach`，附件用 API 补（HAP 与 APK 都要传）：
 
 ```powershell
-$id  = (gitee api "/repos/aishangwuji/openchat/releases/tags/v1.0.3" | ConvertFrom-Json).id
+$id  = (gitee api "/repos/aishangwuji/openchat/releases/tags/v1.0.4" | ConvertFrom-Json).id
 $tok = (gitee auth token).Trim()
-foreach ($f in @("dist/openchat-1.0.3.hap", "dist/openchat-1.0.3.apk")) {
+foreach ($f in @("dist/openchat-1.0.4.hap", "dist/openchat-1.0.4.apk")) {
   curl.exe -sS -X POST "https://gitee.com/api/v5/repos/aishangwuji/openchat/releases/$id/attach_files" `
     -F "access_token=$tok" -F "file=@$f"
 }
@@ -114,7 +119,7 @@ foreach ($f in @("dist/openchat-1.0.3.hap", "dist/openchat-1.0.3.apk")) {
 ## 6. 校验
 
 ```powershell
-gh release view v1.0.3 --repo aishangwuji/openchat --json tagName,assets
+gh release view v1.0.4 --repo aishangwuji/openchat --json tagName,assets
 gitee api "/repos/aishangwuji/openchat/releases/latest"
 ```
 

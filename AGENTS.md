@@ -94,10 +94,12 @@
   - `flutter build apk --debug`（首次会拉 Gradle 依赖，慢）
 - 构建前设置 `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`，否则
   Gradle 拉 `io.flutter:*_debug` 会因 TLS 失败卡住。
-- Android：`minSdk 24`、`MainActivity : FlutterFragmentActivity`（local_auth），
-  `namespace`/`applicationId` = `com.aishangwuji.openchat`（与 iOS 的 `com.example.openchat` 不同，
-  `adb shell am start -n com.aishangwuji.openchat/.MainActivity`）；release 读 `android/key.properties`，
-  缺失回退 debug 签名。
+- Android：`minSdk 24`、`MainActivity : FlutterFragmentActivity`（local_auth）；
+  `namespace = com.aishangwuji.openchat`，但 `applicationId` 保持 `com.example.openchat`
+  （安装身份，v1.0.4 起冻结；v1.0.3 改新包名导致 v1.0.2 用户升级读不到旧数据，已撤回，
+  换包名必须先做迁移，见 `techdebt/TD-015`）；启动命令
+  `adb shell am start -n com.example.openchat/com.aishangwuji.openchat.MainActivity`；
+  release 读 `android/key.properties`，缺失回退 debug 签名。
 - iOS：bundle id `com.example.openchat`（RunnerTests 同前缀），部署目标 13.0，
   已配置 `NSFaceIDUsageDescription` 与 `NSMicrophoneUsageDescription`；本机无 Xcode。
 - 依赖（2026-11-20 新增）：`record`（录音）、`audioplayers`（朗读播放）、
@@ -123,7 +125,7 @@
 - Android 真机（2026-11-26 起本机可用）：`adb` 在 `D:\tools\scrcpy-win64-v5.0.1\adb.exe`（不在 PATH），
   serial `A7PEUT3407000681`（Honor ANB-AN00 / Android 15）；装包
   `flutter build apk --debug` → `adb install -r -d build\app\outputs\flutter-apk\app-debug.apk`，
-  启动 `adb shell am start -n com.aishangwuji.openchat/.MainActivity`，日志
+  启动 `adb shell am start -n com.example.openchat/com.aishangwuji.openchat.MainActivity`，日志
   `adb logcat -s flutter:*`。该机开着平行空间/分身（user 100/128），`pm list packages` 不带
   `--user 0` 会报 SecurityException；Flutter 语义树默认不上报，`uiautomator dump` 拿不到文字，
   UI 层验证要么用 `integration_test`，要么临时写一个探针入口（`flutter build apk -t lib/xxx.dart`）。
@@ -149,7 +151,7 @@
     将来上架 Play 必须改回商店内更新。
   - 验证手法：临时探针 `lib/dev_update_probe.dart` +
     `flutter build apk --debug -t lib/dev_update_probe.dart`；预授权
-    `adb shell appops set com.aishangwuji.openchat REQUEST_INSTALL_PACKAGES allow`；
+    `adb shell appops set com.example.openchat REQUEST_INSTALL_PACKAGES allow`；
     用 `dumpsys activity activities | Select-String topResumedActivity` 确认
     `PackageInstallerActivity` 在前台。探针是临时文件，验证完删掉、不要提交。
 - 认知文档：`systemmap/balance-app-mobile.md`；发布缺口：`techdebt/TD-004-*.md`；

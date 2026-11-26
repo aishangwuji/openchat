@@ -50,7 +50,7 @@ covered_paths:
   - mobile/test/tts_limit_test.dart
   - mobile/test/file_upload_limit_test.dart
   - mobile/test/signature_limit_test.dart
-last_verified_commit: 66df07c
+last_verified_commit: 7c6c785
 last_verified: 2026-11-26
 ---
 
@@ -184,9 +184,13 @@ last_verified: 2026-11-26
 
 ## 平台配置
 
-- Android：applicationId/namespace `com.example.balanceapp`；`minSdk = maxOf(flutter, 24)`；
-  `MainActivity : FlutterFragmentActivity`；manifest 含 `INTERNET`，label `BalanceApp`。
-- iOS：bundle id `com.example.balanceapp`；部署目标 13.0；
+- Android：`applicationId = com.example.openchat`（安装身份，v1.0.4 起冻结；改包名必须先做
+  数据迁移，见 `TD-015`），`namespace = com.aishangwuji.openchat`；版本 1.0.4+5；
+  `minSdk = maxOf(flutter, 24)`；`MainActivity : FlutterFragmentActivity` 在
+  `com.aishangwuji.openchat` 包下，启动组件为
+  `com.example.openchat/com.aishangwuji.openchat.MainActivity`；manifest 含 `INTERNET`，
+  label `openchat`。
+- iOS：bundle id `com.example.openchat`；部署目标 13.0；
   `NSFaceIDUsageDescription` 已配置；无 Podfile（需 macOS 首次 `pod install`）。
 - 构建网络：本机直连 `storage.googleapis.com` 会 TLS 握手失败，必须设置
   `FLUTTER_STORAGE_BASE_URL=https://storage.flutter-io.cn`。
@@ -431,3 +435,16 @@ hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）�
 - **入口收敛**：非 DeepSeek 服务商隐藏朗读/语音/附件入口。
 - 验证：`flutter analyze` 0 issue、`flutter test` 98 项通过、`flutter build apk --debug` 成功。
   真实接口表现仍待真机回归；遗留项见 `techdebt/TD-014`。
+
+## 2026-11-26 Android 包名事故与 v1.0.4 撤回
+
+- v1.0.2 的 `applicationId` 是 `com.example.openchat`；`807a1bc` 在发版后改成
+  `com.aishangwuji.openchat`，v1.0.3 沿用，导致 Android 把 v1.0.3 当另一个应用。
+  v1.0.2 用户升级后读不到旧 SharedPreferences/Keystore（历史与 Key 为空），
+  且因两版同为 debug 签名，安装器不会报错，问题隐蔽。
+- HAP 的 `bundleName` 一直是 `com.example.openchat`，鸿蒙端不受影响。
+- 处置：v1.0.3 在 GitHub/Gitee 标为 pre-release 并加“请勿安装”说明；v1.0.4 恢复
+  `applicationId = com.example.openchat`（`namespace` 保留新包名），v1.0.2 可原地升级。
+- 真机验证：先装 v1.0.2（versionCode 3）再 `adb install -r` v1.0.4，
+  `firstInstallTime` 与 `dataDir=/data/user/0/com.example.openchat` 均不变，确认原地升级。
+- 后续要换品牌包名必须先做导出/导入迁移，见 `techdebt/TD-015`。
