@@ -15,10 +15,43 @@ class TtsService {
   const TtsService._();
 
   static const String _endpoint = 'https://api.deepseek.com/v1/tools/tts';
-  static const int _maxChars = 2000;
-  static const Duration _timeout = Duration(seconds: 120);
+  /// 官方单次请求上限是 10,000 个计费字符（汉字按 2 计），不是 2000 字。
+  static const int _maxBillingChars = 10000;
+  static const Duration _timeout = Duration(minutes: 5);
   static const List<String> voices = <String>['stella', 'tide'];
   static const String defaultVoice = 'stella';
+
+  /// TTS 计费字符：汉字按 2 计，英文/数字/空格等按 1 计（官方计费规则）。
+  static int billingChars(String text) {
+    int total = 0;
+    for (final int rune in text.runes) {
+      total += _isHan(rune) ? 2 : 1;
+    }
+    return total;
+  }
+
+  /// 按计费字符裁剪到官方上限；不超限时原样返回。
+  static String clipForTts(String text) {
+    if (billingChars(text) <= _maxBillingChars) {
+      return text;
+    }
+    final StringBuffer out = StringBuffer();
+    int total = 0;
+    for (final int rune in text.runes) {
+      final int cost = _isHan(rune) ? 2 : 1;
+      if (total + cost > _maxBillingChars) {
+        break;
+      }
+      out.writeCharCode(rune);
+      total += cost;
+    }
+    return out.toString();
+  }
+
+  static bool _isHan(int rune) =>
+      (rune >= 0x3400 && rune <= 0x4DBF) ||
+      (rune >= 0x4E00 && rune <= 0x9FFF) ||
+      (rune >= 0xF900 && rune <= 0xFAFF);
 
   static final AudioPlayer _player = AudioPlayer();
   static String _playingKey = '';
@@ -44,9 +77,7 @@ class TtsService {
     if (clipped.isEmpty) {
       throw const TtsException('没有可朗读的内容');
     }
-    if (clipped.length > _maxChars) {
-      clipped = clipped.substring(0, _maxChars);
-    }
+    clipped = clipForTts(clipped);
     final String voice = voices.contains(voiceId) ? voiceId : defaultVoice;
     final String cacheKey = _hashKey(voice, clipped);
     final File file = await _cacheFile(cacheKey);
