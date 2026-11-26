@@ -87,7 +87,8 @@
 - 构建前设置 `$env:FLUTTER_STORAGE_BASE_URL="https://storage.flutter-io.cn"`，否则
   Gradle 拉 `io.flutter:*_debug` 会因 TLS 失败卡住。
 - Android：`minSdk 24`、`MainActivity : FlutterFragmentActivity`（local_auth），
-  `namespace`/`applicationId` = `com.example.openchat`；release 读 `android/key.properties`，
+  `namespace`/`applicationId` = `com.aishangwuji.openchat`（与 iOS 的 `com.example.openchat` 不同，
+  `adb shell am start -n com.aishangwuji.openchat/.MainActivity`）；release 读 `android/key.properties`，
   缺失回退 debug 签名。
 - iOS：bundle id `com.example.openchat`（RunnerTests 同前缀），部署目标 13.0，
   已配置 `NSFaceIDUsageDescription` 与 `NSMicrophoneUsageDescription`；本机无 Xcode。
