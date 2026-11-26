@@ -1,22 +1,30 @@
 # 发布流程（GitHub + Gitee 双源）
 
 应用内「检查更新」读的是 **release**，不是 tag：`tag_name` 作版本号，`body` 作更新说明，
-`assets` 里的 `.hap` 作下载直链。因此每次发布必须同时满足：
+`assets` 里的 `.hap`（鸿蒙）或 `.apk`（Android）作下载直链。因此每次发布必须同时满足：
 
 1. `BalanceApp/AppScope/app.json5` 的 `versionName` 递增（`versionCode` 也要递增，安装器用它比较）；
-2. 打 `vX.Y.Z` 标签；
-3. release 里挂上 `openchat-X.Y.Z.hap`；
-4. GitHub 与 Gitee 两个源都发（应用先查 Gitee、失败再查 GitHub）。
+2. `mobile/pubspec.yaml` 的 `version:` 与 `mobile/lib/core/app_version.dart` 同步递增；
+3. 打 `vX.Y.Z` 标签；
+4. release 里挂上 `openchat-X.Y.Z.hap` 与 `openchat-X.Y.Z.apk`；
+5. GitHub 与 Gitee 两个源都发（应用先查 Gitee、失败再查 GitHub）。
 
 ## 1. 改版本号
 
 ```powershell
 # BalanceApp/AppScope/app.json5
-"versionCode": 1000001,
-"versionName": "1.0.1",
+"versionCode": 1000003,
+"versionName": "1.0.3",
+
+# mobile/pubspec.yaml
+version: 1.0.3+4          # versionName+versionCode
+
+# mobile/lib/core/app_version.dart
+const String appVersion = '1.0.3';
 ```
 
 版本比较是逐段数值比较（`1.0.10 > 1.0.9`），不要用日期式版本号。
+`app_version.dart` 是移动端「检查更新」比较的当前版本，漏改会一直提示更新。
 
 > 打包前确认本机签名有效（`bundleName` 与证书一致）。签名与安装的机制见
 > [signing.md](signing.md)；仓库里不含签名材料，Release 里的 HAP 是作者调试签名，
@@ -37,6 +45,18 @@ node "D:/Program Files/Huawei/DevEco Studio/tools/hvigor/bin/hvigorw.js" assembl
 
 > 说明：debug 签名的 HAP 只能在签名时登记过的设备上安装；开源分发的安装包需要读者用
 > DevEco 自行签名，或你用自己的发布证书签名后上传。仓库只发源码也可以，HAP 属于便利附件。
+
+### 2.1 构建 Android APK
+
+```powershell
+cd mobile
+$env:FLUTTER_STORAGE_BASE_URL = "https://storage.flutter-io.cn"
+flutter build apk --release
+Copy-Item build/app/outputs/flutter-apk/app-release.apk ..\dist\openchat-X.Y.Z.apk -Force
+```
+
+没有 `mobile/android/key.properties` 时 release 也回退 debug 签名；这种包只能覆盖安装
+同样 debug 签名的旧版，换签名后老用户必须卸载重装。
 
 ## 3. 提交并打标签
 
@@ -62,38 +82,40 @@ gh api repos/aishangwuji/openchat/git/ref/tags/v1.0.1  # 确认 tag 已同步
 ## 4. 发 GitHub Release
 
 ```powershell
-gh release create v1.0.1 "dist/openchat-1.0.1.hap" `
+gh release create v1.0.3 "dist/openchat-1.0.3.hap" "dist/openchat-1.0.3.apk" `
   --repo aishangwuji/openchat `
-  --title "v1.0.1" `
-  --notes "## 变更`n- 修复 xxx`n- 新增 yyy"
+  --title "v1.0.3" `
+  --notes-file "dist/release-notes-1.0.3.md"
 ```
 
 `gh` 走 API 上传资产，实测可用（不受 `github.com` 直连被重置影响）。
 
-`--notes` 的内容会原样显示在应用的更新弹窗里（应用内截断到 600 字），建议用简短的
-「变更」列表，而不是整段提交日志。
+`--notes-file`（或 `--notes`）的内容会原样显示在应用的更新弹窗里（应用内截断到 600 字），
+建议用简短的「变更」列表，而不是整段提交日志。
 
-## 5. 发 Gitee Release 并挂 HAP
+## 5. 发 Gitee Release 并挂 HAP/APK
 
 ```powershell
-gitee release create --repo aishangwuji/openchat --tag v1.0.1 `
-  -n "v1.0.1" -b "变更说明"
+gitee release create --repo aishangwuji/openchat --tag v1.0.3 `
+  -n "v1.0.3" -b (Get-Content -Raw dist/release-notes-1.0.3.md)
 ```
 
-Gitee CLI 的 `release create` 没有 `--attach`，附件用 API 补：
+Gitee CLI 的 `release create` 没有 `--attach`，附件用 API 补（HAP 与 APK 都要传）：
 
 ```powershell
-$id  = (gitee api "/repos/aishangwuji/openchat/releases/tags/v1.0.1" | ConvertFrom-Json).id
-$tok = gitee auth token
-curl.exe -s -X POST "https://gitee.com/api/v5/repos/aishangwuji/openchat/releases/$id/attach_files" `
-  -F "access_token=$tok" -F "file=@dist/openchat-1.0.1.hap"
+$id  = (gitee api "/repos/aishangwuji/openchat/releases/tags/v1.0.3" | ConvertFrom-Json).id
+$tok = (gitee auth token).Trim()
+foreach ($f in @("dist/openchat-1.0.3.hap", "dist/openchat-1.0.3.apk")) {
+  curl.exe -sS -X POST "https://gitee.com/api/v5/repos/aishangwuji/openchat/releases/$id/attach_files" `
+    -F "access_token=$tok" -F "file=@$f"
+}
 ```
 
 ## 6. 校验
 
 ```powershell
-gh release view v1.0.1 --repo aishangwuji/openchat --json tagName,assets
-curl.exe -s https://gitee.com/api/v5/repos/aishangwuji/openchat/releases/latest
+gh release view v1.0.3 --repo aishangwuji/openchat --json tagName,assets
+gitee api "/repos/aishangwuji/openchat/releases/latest"
 ```
 
 再在应用里「设置 → 关于 → 检查更新」确认弹窗能拿到说明与下载链接。
