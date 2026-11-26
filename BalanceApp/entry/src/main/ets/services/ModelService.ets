@@ -1,11 +1,8 @@
 /*
  * ModelService.ets
  *
- * 统一模型端点与模型拉取服务：
- * 严格按照 DeepSeek, Kimi, 小米 MiMo 官方文档规范，实时发起 GET /models 或 GET /v1/models 拉取真实模型列表。
+ * 统一模型端点与模型拉取服务：应用只支持 DeepSeek。
  * - DeepSeek: https://api.deepseek.com/models
- * - Kimi: https://api.moonshot.cn/v1/models
- * - 小米 MiMo: https://api.xiaomimimo.com/v1/models
  */
 
 import { http } from '@kit.NetworkKit';
@@ -43,36 +40,12 @@ export class ModelService {
       i += 1;
     }
 
-    if (providerId === 'mimo') {
-      return ModelService.toModelInfos([
-        'mimo-v2.6-flash',
-        'mimo-v2.6-pro',
-        'mimo-v2.6-pro-ultraspeed',
-        'mimo-v2.5-pro',
-        'mimo-v2.5'
-      ]);
-    }
-    if (providerId === 'deepseek') {
-      // 官方已于 2026-07-24 下线 deepseek-chat / deepseek-reasoner（见 V4 预览版公告），
-      // 现行模型为 deepseek-flash 与 deepseek-v4-pro；联网服务端工具也只在这两个模型下可用。
-      return ModelService.toModelInfos([
-        'deepseek-flash',
-        'deepseek-v4-pro'
-      ]);
-    }
-    if (providerId === 'kimi') {
-      return ModelService.toModelInfos([
-        'kimi-k3',
-        'kimi-k2.7-code',
-        'kimi-k2.7-code-highspeed',
-        'kimi-k2.6',
-        'moonshot-v1-8k',
-        'moonshot-v1-32k',
-        'moonshot-v1-128k'
-      ]);
-    }
-
-    return [];
+    // 官方已于 2026-07-24 下线 deepseek-chat / deepseek-reasoner（见 V4 预览版公告），
+    // 现行模型为 deepseek-flash 与 deepseek-v4-pro；联网服务端工具也只在这两个模型下可用。
+    return ModelService.toModelInfos([
+      'deepseek-flash',
+      'deepseek-v4-pro'
+    ]);
   }
 
   /**
@@ -106,7 +79,6 @@ export class ModelService {
     try {
       const headerMap: Record<string, string> = {
         'Authorization': `Bearer ${apiKey.trim()}`,
-        'api-key': apiKey.trim(),
         'Accept': 'application/json'
       };
 

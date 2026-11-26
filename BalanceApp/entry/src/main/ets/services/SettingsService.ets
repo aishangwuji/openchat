@@ -20,28 +20,12 @@ export const KEY_FONT_SIZE_LEVEL = 'app_font_size_level'; // 1 ~ 7，默认 3
 export const KEY_AUTO_COLLAPSE_THINKING = 'auto_collapse_thinking'; // boolean，默认 true
 /** 朗读音色：stella（海星，女声，默认）| tide（暗潮，男声）。 */
 export const KEY_TTS_VOICE = 'tts_voice_id'; // string
-/** 百智云生图 API Key（只落本机 Preferences，不进日志）。 */
-export const KEY_BAIZHI_IMAGE = 'key_baizhi_image'; // string
-/** 百智云联网搜索 API Key（与生图 Key 分开，可分别授权）。 */
-export const KEY_BAIZHI_WEB = 'key_baizhi_web'; // string
-/**
- * 百智云各模块 Key 是否已配置（AppStorage，boolean）。
- * Business Rule: 百智云的 Key 按功能模块签发、互不通用，所以状态也按模块分开；
- *   聊天页用 @StorageProp 订阅，保存/清除后立即生效，不必重启应用。
- */
-export const KEY_BAIZHI_IMAGE_READY = 'baizhi_image_configured'; // boolean
-export const KEY_BAIZHI_WEB_READY = 'baizhi_web_configured'; // boolean
-/** 联网搜索能力来源：'deepseek'（服务端内置工具）| 'baizhi'（百智云 OpenAPI）。 */
-export const KEY_WEB_SEARCH_PROVIDER = 'web_search_provider'; // string
-export const WEB_SEARCH_PROVIDER_DEEPSEEK = 'deepseek';
-export const WEB_SEARCH_PROVIDER_BAIZHI = 'baizhi';
 
 /** 功能开关（设置 > 工具）：默认值与键名集中在这里，避免散落魔法字符串。 */
 export const KEY_FEATURE_TITLE = 'feature_auto_title'; // boolean，默认 true
 export const KEY_FEATURE_FILES = 'feature_files'; // boolean，默认 true
 export const KEY_FEATURE_ASR = 'feature_asr'; // boolean，默认 true
 export const KEY_FEATURE_TTS = 'feature_tts'; // boolean，默认 true
-export const KEY_FEATURE_IMAGE = 'feature_image'; // boolean，默认 true
 export const KEY_FEATURE_SAFETY = 'feature_safety'; // boolean，默认 false
 export const KEY_FEATURE_READ_URL = 'feature_read_url'; // boolean，默认 true
 /** 用户所在地（注入 latest_reminder，可留空）。 */
@@ -114,10 +98,8 @@ export class SettingsService {
         voiceVal as string : DEFAULT_TTS_VOICE;
       AppStorage.setOrCreate<string>(KEY_TTS_VOICE, ttsVoice);
 
-      // 4.5 工具开关与服务商：全部进 AppStorage，页面用 @StorageProp 直接响应。
+      // 4.5 工具开关：全部进 AppStorage，页面用 @StorageProp 直接响应。
       await SettingsService.loadToolsConfig();
-      // 4.6 百智云各模块 Key 的「已配置」状态：聊天页据此决定是否声明生图工具。
-      await SettingsService.loadBaizhiKeyState();
 
       // 4. 应用锁：仅在首次初始化时决定是否直接锁定，避免页面再次 init 时把已解锁状态重置。
       const lockVal: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_APP_LOCK_ENABLED, false);
@@ -382,53 +364,18 @@ export class SettingsService {
     }
   }
 
-  /** 百智云生图 Key（与对话服务商 Key 分开存，避免混用）。 */
-  public static async getImageKey(context: common.UIAbilityContext): Promise<string> {
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      const val: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_BAIZHI_IMAGE, '');
-      return typeof val === 'string' ? val as string : '';
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'getImageKey failed: %{public}s', String(err));
-      return '';
-    }
-  }
-
-  /** 保存百智云 Key；传空字符串表示清除。 */
-  public static async setImageKey(context: common.UIAbilityContext, apiKey: string): Promise<void> {
-    const trimmed: string = apiKey.trim();
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      await SettingsService.prefsInstance.put(KEY_BAIZHI_IMAGE, trimmed);
-      await SettingsService.prefsInstance.flush();
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'setImageKey save failed: %{public}s', String(err));
-      return;
-    }
-    // 落盘成功才翻转状态，聊天页订阅此值，保存即生效（无需重启）。
-    AppStorage.setOrCreate<boolean>(KEY_BAIZHI_IMAGE_READY, trimmed.length > 0);
-  }
-  /** 读取工具开关与服务商到 AppStorage（init 与设置页刷新共用）。 */
+  /** 读取工具开关到 AppStorage（init 与设置页刷新共用）。 */
   public static async loadToolsConfig(): Promise<void> {
     await SettingsService.loadFeature(KEY_FEATURE_TITLE, true);
     await SettingsService.loadFeature(KEY_FEATURE_FILES, true);
     await SettingsService.loadFeature(KEY_FEATURE_ASR, true);
     await SettingsService.loadFeature(KEY_FEATURE_TTS, true);
-    await SettingsService.loadFeature(KEY_FEATURE_IMAGE, true);
     await SettingsService.loadFeature(KEY_FEATURE_SAFETY, false);
     await SettingsService.loadFeature(KEY_FEATURE_READ_URL, true);
     const prefs: preferences.Preferences | undefined = SettingsService.prefsInstance;
     if (prefs === undefined) {
       return;
     }
-    const provVal: preferences.ValueType = await prefs.get(KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_DEEPSEEK);
-    const provider: string = typeof provVal === 'string' && (provVal as string) === WEB_SEARCH_PROVIDER_BAIZHI
-      ? WEB_SEARCH_PROVIDER_BAIZHI : WEB_SEARCH_PROVIDER_DEEPSEEK;
-    AppStorage.setOrCreate<string>(KEY_WEB_SEARCH_PROVIDER, provider);
     const locVal: preferences.ValueType = await prefs.get(KEY_USER_LOCATION, '');
     const location: string = typeof locVal === 'string' ? sanitizeLocation(locVal as string) : '';
     AppStorage.setOrCreate<string>(KEY_USER_LOCATION, location);
@@ -470,72 +417,6 @@ export class SettingsService {
       await SettingsService.prefsInstance.flush();
     } catch (err) {
       hilog.error(DOMAIN, TAG, 'setFeature save failed: %{public}s', String(err));
-    }
-  }
-
-  /** 联网搜索来源（deepseek 内置 / baizhi OpenAPI）。 */
-  public static async setWebSearchProvider(context: common.UIAbilityContext, provider: string): Promise<void> {
-    const valid: string = provider === WEB_SEARCH_PROVIDER_BAIZHI
-      ? WEB_SEARCH_PROVIDER_BAIZHI : WEB_SEARCH_PROVIDER_DEEPSEEK;
-    AppStorage.setOrCreate<string>(KEY_WEB_SEARCH_PROVIDER, valid);
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      await SettingsService.prefsInstance.put(KEY_WEB_SEARCH_PROVIDER, valid);
-      await SettingsService.prefsInstance.flush();
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'setWebSearchProvider failed: %{public}s', String(err));
-    }
-  }
-
-  /** 百智云联网搜索 Key（与生图 Key 分开）。 */
-  public static async getBaizhiWebKey(context: common.UIAbilityContext): Promise<string> {
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      const val: preferences.ValueType = await SettingsService.prefsInstance.get(KEY_BAIZHI_WEB, '');
-      return typeof val === 'string' ? val as string : '';
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'getBaizhiWebKey failed: %{public}s', String(err));
-      return '';
-    }
-  }
-
-  public static async setBaizhiWebKey(context: common.UIAbilityContext, apiKey: string): Promise<void> {
-    const trimmed: string = apiKey.trim();
-    try {
-      if (SettingsService.prefsInstance === undefined) {
-        SettingsService.prefsInstance = await preferences.getPreferences(context, { name: PREFS_NAME });
-      }
-      await SettingsService.prefsInstance.put(KEY_BAIZHI_WEB, trimmed);
-      await SettingsService.prefsInstance.flush();
-    } catch (err) {
-      hilog.error(DOMAIN, TAG, 'setBaizhiWebKey failed: %{public}s', String(err));
-      return;
-    }
-    AppStorage.setOrCreate<boolean>(KEY_BAIZHI_WEB_READY, trimmed.length > 0);
-  }
-
-  /** 读百智云各模块 Key 的配置状态进 AppStorage（只看有无，不回显明文）。 */
-  public static async loadBaizhiKeyState(): Promise<void> {
-    const prefs: preferences.Preferences | undefined = SettingsService.prefsInstance;
-    if (prefs === undefined) {
-      return;
-    }
-    try {
-      const imgVal: preferences.ValueType = await prefs.get(KEY_BAIZHI_IMAGE, '');
-      const webVal: preferences.ValueType = await prefs.get(KEY_BAIZHI_WEB, '');
-      const imgReady: boolean = typeof imgVal === 'string' && (imgVal as string).trim().length > 0;
-      const webReady: boolean = typeof webVal === 'string' && (webVal as string).trim().length > 0;
-      AppStorage.setOrCreate<boolean>(KEY_BAIZHI_IMAGE_READY, imgReady);
-      AppStorage.setOrCreate<boolean>(KEY_BAIZHI_WEB_READY, webReady);
-      // 只打印「有没有配」，不打印 Key 本身。
-      hilog.info(DOMAIN, TAG, 'baizhi key state: imageReady=%{public}s webReady=%{public}s',
-        String(imgReady), String(webReady));
-    } catch (err) {
-      hilog.warn(DOMAIN, TAG, 'loadBaizhiKeyState failed: %{public}s', String(err));
     }
   }
 }

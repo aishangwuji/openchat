@@ -297,13 +297,6 @@ export class ChatStorageService {
       sources: ChatStorageService.normalizeSources(rec['sources']),
       citations: ChatStorageService.normalizeCitations(rec['citations']),
       attachments: ChatStorageService.normalizeAttachments(rec['attachments']),
-      imageUrls: ChatStorageService.normalizeImageUrls(rec['imageUrls']),
-      imageMeta: typeof rec['imageMeta'] === 'string' ? rec['imageMeta'] as string : undefined,
-      imageAspect: typeof rec['imageAspect'] === 'number' && (rec['imageAspect'] as number) > 0
-        ? rec['imageAspect'] as number : undefined,
-      imagePrompt: typeof rec['imagePrompt'] === 'string' ? rec['imagePrompt'] as string : undefined,
-      imageState: rec['imageState'] === 'done' || rec['imageState'] === 'failed'
-        ? rec['imageState'] as 'done' | 'failed' : undefined,
       // 服务端工具调用原文（含阅读链接 signature）：只做类型/长度初筛，
       // 结构校验在回传前（WebSearchService.parseServerToolCalls）。
       serverToolCallsJson: typeof rec['serverToolCallsJson'] === 'string' &&
@@ -329,27 +322,6 @@ export class ChatStorageService {
   /**
    * 边界校验：生图结果 URL 来自持久化 JSON，只收 http/https，最多 4 张。
    */
-  private static normalizeImageUrls(raw: ESObject): string[] | undefined {
-    if (!Array.isArray(raw)) {
-      return undefined;
-    }
-    const list: ESObject[] = raw as ESObject[];
-    const out: string[] = [];
-    let i: number = 0;
-    while (i < list.length && out.length < 4) {
-      const item: ESObject = list[i];
-      i += 1;
-      if (typeof item !== 'string') {
-        continue;
-      }
-      const url: string = item as string;
-      if (url.startsWith('https://') || url.startsWith('http://')) {
-        out.push(url);
-      }
-    }
-    return out.length > 0 ? out : undefined;
-  }
-
   /**
    * 边界校验：联网搜索来源来自持久化 JSON，可能被旧版本或外部改写。
    * Business Rule: url 必须是 http/https 字符串才收；展示字段缺失即缺省（界面回退主机名），

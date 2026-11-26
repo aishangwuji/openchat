@@ -84,18 +84,6 @@ export interface ChatMessage {
   searchHint?: string;
   /** 回答是否被长度上限截断（finish_reason=length）。实时字段，不持久化。 */
   incomplete?: boolean;
-  /** 生图任务态：generating=生成中（实时字段）；done/failed 持久化。 */
-  imageState?: 'generating' | 'done' | 'failed';
-  /** 生成图片 URL（持久化；百智云结果地址有时效，过期后展示占位）。 */
-  imageUrls?: string[];
-  /** 生图元数据（模型 | 比例 | 画质 | 耗时），用于成图上方的信息条。 */
-  imageMeta?: string;
-  /** 生图宽高比（宽/高），用于锁定容器比例，避免加载时布局抖动。 */
-  imageAspect?: number;
-  /** 生图提示词（失败重试用）。 */
-  imagePrompt?: string;
-  /** 生图进度文案或失败原因（实时字段，不持久化）。 */
-  imageHint?: string;
   /**
    * 引用位标（annotations）：用于在正文对应位置插入可点的 [N](#cite-N) 角标。
    * 持久化——历史会话重开时仍要能还原角标位置。

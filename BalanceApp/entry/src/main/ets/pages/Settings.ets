@@ -18,11 +18,9 @@ import { UpdateService, UpdateInfo } from '../services/UpdateService';
 import {
   SettingsService, AppearanceMode, KEY_APP_APPEARANCE, KEY_APP_DARK, KEY_FONT_SIZE_LEVEL, KEY_AUTO_COLLAPSE_THINKING,
   KEY_APP_LOCK_ENABLED, KEY_APP_LOCK_AUTH_MODE, AppLockAuthMode, KEY_TTS_VOICE, DEFAULT_TTS_VOICE,
-  KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS, KEY_FEATURE_IMAGE, KEY_FEATURE_SAFETY,
+  KEY_FEATURE_TITLE, KEY_FEATURE_FILES, KEY_FEATURE_ASR, KEY_FEATURE_TTS, KEY_FEATURE_SAFETY,
   KEY_FEATURE_READ_URL,
-  KEY_USER_LOCATION,
-  KEY_WEB_SEARCH_PROVIDER, WEB_SEARCH_PROVIDER_DEEPSEEK, WEB_SEARCH_PROVIDER_BAIZHI,
-  KEY_BAIZHI_IMAGE_READY, KEY_BAIZHI_WEB_READY
+  KEY_USER_LOCATION
 } from '../services/SettingsService';
 import { AuthService } from '../services/AuthService';
 import {
@@ -96,24 +94,10 @@ struct Settings {
   @State showFontSizeSheet: boolean = false;
   @State showPersonalizeSheet: boolean = false;
   @State showVoiceSheet: boolean = false;
-  @State showImageSheet: boolean = false;
-  @State showWebKeySheet: boolean = false;
-  @State showToolProviderSheet: boolean = false;
-  /**
-   * 百智云 Key 状态：各模块 Key 互不通用，订阅 SettingsService 写入的 AppStorage 布尔值，
-   * 保存/清除后本页与聊天页同时立刻刷新。
-   */
-  @StorageProp(KEY_BAIZHI_IMAGE_READY) imageHasKey: boolean = false;
-  @State imageKeyInput: string = '';
-  /** 百智云联网搜索 Key（与生图 Key 分开）。 */
-  @StorageProp(KEY_BAIZHI_WEB_READY) webKeyHasKey: boolean = false;
-  @State webKeyInput: string = '';
-  @StorageProp(KEY_WEB_SEARCH_PROVIDER) webSearchProvider: string = WEB_SEARCH_PROVIDER_DEEPSEEK;
   @StorageProp(KEY_FEATURE_TITLE) featureTitle: boolean = true;
   @StorageProp(KEY_FEATURE_FILES) featureFiles: boolean = true;
   @StorageProp(KEY_FEATURE_ASR) featureAsr: boolean = true;
   @StorageProp(KEY_FEATURE_TTS) featureTts: boolean = true;
-  @StorageProp(KEY_FEATURE_IMAGE) featureImage: boolean = true;
   @StorageProp(KEY_FEATURE_SAFETY) featureSafety: boolean = false;
   @StorageProp(KEY_FEATURE_READ_URL) featureReadUrl: boolean = true;
   /** 用户所在地（可留空）：随 latest_reminder 告诉模型。 */
@@ -373,24 +357,6 @@ struct Settings {
     this.openExternal('https://gitee.com/aishangwuji/openchat');
   }
 
-  private async saveImageKey(): Promise<void> {
-    const text: string = this.imageKeyInput.trim();
-    if (text.length === 0) {
-      return;
-    }
-    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    await SettingsService.setImageKey(hostCtx, text);
-    this.imageKeyInput = '';
-    this.showImageSheet = false;
-  }
-
-  private async clearImageKey(): Promise<void> {
-    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    await SettingsService.setImageKey(hostCtx, '');
-    this.imageKeyInput = '';
-    this.showImageSheet = false;
-  }
-
   private openExternal(url: string): void {
     if (url.length === 0) {
       return;
@@ -493,20 +459,6 @@ struct Settings {
               .margin({ top: 24, bottom: 10 })
 
             Column() {
-              this.SettingRow($r('app.media.ic_globe'), this.t('settings_web_provider'),
-                this.webProviderDisplay(), false, () => {
-                  this.showToolProviderSheet = true;
-                })
-              if (this.webSearchProvider === WEB_SEARCH_PROVIDER_BAIZHI) {
-                this.SettingRow($r('app.media.ic_attach'), this.t('settings_web_key'),
-                  this.webKeyHasKey ? this.t('settings_image_key_on') : this.t('settings_image_key_off'), false, () => {
-                    this.showWebKeySheet = true;
-                  })
-              }
-              this.SettingRow($r('app.media.ic_gallery'), this.t('settings_image_key'),
-                this.imageHasKey ? this.t('settings_image_key_on') : this.t('settings_image_key_off'), true, () => {
-                  this.showImageSheet = true;
-                })
               // 用户元信息：所在地（可留空），随 latest_reminder 注入对话。
               this.SettingRow($r('app.media.ic_personalize'), this.t('settings_user_location'),
                 this.userLocation.length > 0 ? this.userLocation : this.t('settings_user_location_empty'), true, () => {
@@ -535,9 +487,6 @@ struct Settings {
               }, false)
               this.ToggleRow(this.t('settings_feature_tts'), this.featureTts, (v: boolean) => {
                 this.toggleFeature(KEY_FEATURE_TTS, v);
-              }, false)
-              this.ToggleRow(this.t('settings_feature_image'), this.featureImage, (v: boolean) => {
-                this.toggleFeature(KEY_FEATURE_IMAGE, v);
               }, false)
               this.ToggleRow(this.t('settings_feature_safety'), this.featureSafety, (v: boolean) => {
                 this.toggleFeature(KEY_FEATURE_SAFETY, v);
@@ -651,21 +600,6 @@ struct Settings {
       // 底部弹框：朗读音色面板
       if (this.showVoiceSheet) {
         this.VoiceSheet()
-      }
-
-      // 底部弹框：百智云生图 Key
-      if (this.showImageSheet) {
-        this.ImageKeySheet()
-      }
-
-      // 底部弹框：联网搜索服务商
-      if (this.showToolProviderSheet) {
-        this.ToolProviderSheet()
-      }
-
-      // 底部弹框：百智云搜索 Key
-      if (this.showWebKeySheet) {
-        this.WebKeySheet()
       }
 
       // 底部弹框：所在地（用户元信息标记）
@@ -1335,90 +1269,7 @@ struct Settings {
     .height('100%')
   }
 
-  // ── 7. 百智云生图 Key Sheet ──
-  @Builder
-  ImageKeySheet() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Rect()
-        .width('100%')
-        .height('100%')
-        .fill(skinColor('overlay_scrim'))
-        .onClick(() => {
-          this.showImageSheet = false;
-        })
-
-      Column() {
-        Row() {
-          Text(this.t('settings_image_key'))
-            .fontSize(16)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(skinColor('text_title'))
-          Blank()
-          Text('✕')
-            .fontSize(16)
-            .fontColor(skinColor('text_muted'))
-            .padding(6)
-            .onClick(() => {
-              this.showImageSheet = false;
-            })
-        }
-        .width('100%')
-        .padding({ left: 20, right: 20, top: 16, bottom: 8 })
-
-        Text(this.t('settings_image_key_desc'))
-          .fontSize(12)
-          .fontColor(skinColor('text_secondary'))
-          .width('90%')
-          .margin({ bottom: 12 })
-
-        TextInput({ placeholder: this.t('settings_image_key_placeholder'), text: this.imageKeyInput })
-          .width('90%')
-          .type(InputType.Password)
-          .height(46)
-          .backgroundColor(skinColor('fill'))
-          .borderRadius(12)
-          .onChange((v: string) => {
-            this.imageKeyInput = v;
-          })
-
-        Row({ space: 12 }) {
-          if (this.imageHasKey) {
-            Button(this.t('settings_image_clear'))
-              .layoutWeight(1)
-              .height(44)
-              .backgroundColor(skinColor('fill'))
-              .fontColor(skinColor('text_primary'))
-              .borderRadius(22)
-              .onClick(() => {
-                this.clearImageKey();
-              })
-          }
-          Button(this.t('settings_image_save'))
-            .layoutWeight(1)
-            .height(44)
-            .backgroundColor(skinColor('accent_solid'))
-            .fontColor(skinColor('accent_contrast'))
-            .borderRadius(22)
-            .onClick(() => {
-              this.saveImageKey();
-            })
-        }
-        .width('90%')
-        .margin({ top: 16, bottom: 28 })
-      }
-      .width('100%')
-      .backgroundColor(skinColor('surface'))
-      .borderRadius({ topLeft: 24, topRight: 24 })
-      .transition(TransitionEffect.asymmetric(
-        TransitionEffect.move(TransitionEdge.BOTTOM),
-        TransitionEffect.move(TransitionEdge.BOTTOM)
-      ))
-    }
-    .width('100%')
-    .height('100%')
-  }
-
-    /** 开关行：标题 + Switch，写回 SettingsService（@StorageProp 驱动页面刷新）。 */
+  /** 开关行：标题 + Switch，写回 SettingsService（@StorageProp 驱动页面刷新）。 */
   @Builder
   ToggleRow(title: string, isOn: boolean, onChange: (v: boolean) => void, isLast: boolean) {
     Row() {
@@ -1435,183 +1286,6 @@ struct Settings {
     .width('100%')
     .padding({ left: 16, right: 16, top: 10, bottom: 10 })
     .border({ width: { bottom: isLast ? 0 : 1 }, color: skinColor('border_soft') })
-  }
-
-  // ── 8. 联网搜索服务商 Sheet ──
-  @Builder
-  ToolProviderSheet() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Rect()
-        .width('100%')
-        .height('100%')
-        .fill(skinColor('overlay_scrim'))
-        .onClick(() => {
-          this.showToolProviderSheet = false;
-        })
-
-      Column() {
-        Row() {
-          Text(this.t('settings_web_provider'))
-            .fontSize(16)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(skinColor('text_title'))
-          Blank()
-          Text('✕')
-            .fontSize(16)
-            .fontColor(skinColor('text_muted'))
-            .padding(6)
-            .onClick(() => {
-              this.showToolProviderSheet = false;
-            })
-        }
-        .width('100%')
-        .padding({ left: 20, right: 20, top: 16, bottom: 8 })
-
-        Text(this.t('settings_web_provider_desc'))
-          .fontSize(12)
-          .fontColor(skinColor('text_secondary'))
-          .width('90%')
-          .margin({ bottom: 12 })
-
-        Column() {
-          this.ProviderOption(this.t('settings_web_provider_deepseek'),
-            this.t('settings_web_provider_deepseek_desc'),
-            this.webSearchProvider === WEB_SEARCH_PROVIDER_DEEPSEEK, () => {
-              this.selectWebProvider(WEB_SEARCH_PROVIDER_DEEPSEEK);
-            })
-          this.ProviderOption(this.t('settings_web_provider_baizhi'),
-            this.t('settings_web_provider_baizhi_desc'),
-            this.webSearchProvider === WEB_SEARCH_PROVIDER_BAIZHI, () => {
-              this.selectWebProvider(WEB_SEARCH_PROVIDER_BAIZHI);
-            })
-        }
-        .width('92%')
-        .margin({ bottom: 26 })
-      }
-      .width('100%')
-      .backgroundColor(skinColor('surface'))
-      .borderRadius({ topLeft: 24, topRight: 24 })
-      .transition(TransitionEffect.asymmetric(
-        TransitionEffect.move(TransitionEdge.BOTTOM),
-        TransitionEffect.move(TransitionEdge.BOTTOM)
-      ))
-    }
-    .width('100%')
-    .height('100%')
-  }
-
-  @Builder
-  ProviderOption(title: string, desc: string, selected: boolean, onTap: () => void) {
-    Column() {
-      Row() {
-        Text(title)
-          .fontSize(15)
-          .fontWeight(FontWeight.Medium)
-          .fontColor(skinColor('text_primary'))
-        Blank()
-        if (selected) {
-          Text('✓')
-            .fontSize(15)
-            .fontColor(skinColor('accent_solid'))
-        }
-      }
-      .width('100%')
-
-      Text(desc)
-        .fontSize(12)
-        .fontColor(skinColor('text_muted'))
-        .width('100%')
-        .margin({ top: 4 })
-    }
-    .width('100%')
-    .padding(14)
-    .margin({ bottom: 8 })
-    .backgroundColor(skinColor('fill'))
-    .borderRadius(14)
-    .onClick(onTap)
-  }
-
-  // ── 9. 百智云搜索 Key Sheet ──
-  @Builder
-  WebKeySheet() {
-    Stack({ alignContent: Alignment.Bottom }) {
-      Rect()
-        .width('100%')
-        .height('100%')
-        .fill(skinColor('overlay_scrim'))
-        .onClick(() => {
-          this.showWebKeySheet = false;
-        })
-
-      Column() {
-        Row() {
-          Text(this.t('settings_web_key'))
-            .fontSize(16)
-            .fontWeight(FontWeight.Bold)
-            .fontColor(skinColor('text_title'))
-          Blank()
-          Text('✕')
-            .fontSize(16)
-            .fontColor(skinColor('text_muted'))
-            .padding(6)
-            .onClick(() => {
-              this.showWebKeySheet = false;
-            })
-        }
-        .width('100%')
-        .padding({ left: 20, right: 20, top: 16, bottom: 8 })
-
-        Text(this.t('settings_web_key_desc'))
-          .fontSize(12)
-          .fontColor(skinColor('text_secondary'))
-          .width('90%')
-          .margin({ bottom: 12 })
-
-        TextInput({ placeholder: this.t('settings_web_key_placeholder'), text: this.webKeyInput })
-          .width('90%')
-          .type(InputType.Password)
-          .height(46)
-          .backgroundColor(skinColor('fill'))
-          .borderRadius(12)
-          .onChange((v: string) => {
-            this.webKeyInput = v;
-          })
-
-        Row({ space: 12 }) {
-          if (this.webKeyHasKey) {
-            Button(this.t('settings_image_clear'))
-              .layoutWeight(1)
-              .height(44)
-              .backgroundColor(skinColor('fill'))
-              .fontColor(skinColor('text_primary'))
-              .borderRadius(22)
-              .onClick(() => {
-                this.clearWebKey();
-              })
-          }
-          Button(this.t('settings_image_save'))
-            .layoutWeight(1)
-            .height(44)
-            .backgroundColor(skinColor('accent_solid'))
-            .fontColor(skinColor('accent_contrast'))
-            .borderRadius(22)
-            .onClick(() => {
-              this.saveWebKey();
-            })
-        }
-        .width('90%')
-        .margin({ top: 16, bottom: 28 })
-      }
-      .width('100%')
-      .backgroundColor(skinColor('surface'))
-      .borderRadius({ topLeft: 24, topRight: 24 })
-      .transition(TransitionEffect.asymmetric(
-        TransitionEffect.move(TransitionEdge.BOTTOM),
-        TransitionEffect.move(TransitionEdge.BOTTOM)
-      ))
-    }
-    .width('100%')
-    .height('100%')
   }
 
   // ── 10. 所在地 Sheet（用户元信息标记） ──
@@ -1660,7 +1334,7 @@ struct Settings {
           })
 
         Row({ space: 12 }) {
-          Button(this.t('settings_image_clear'))
+          Button(this.t('settings_dialog_clear'))
             .layoutWeight(1)
             .height(44)
             .backgroundColor(skinColor('fill'))
@@ -1669,7 +1343,7 @@ struct Settings {
             .onClick(() => {
               this.locationInput = '';
             })
-          Button(this.t('settings_image_save'))
+          Button(this.t('settings_dialog_save'))
             .layoutWeight(1)
             .height(44)
             .backgroundColor(skinColor('accent_solid'))
@@ -1734,35 +1408,5 @@ struct Settings {
   private async toggleFeature(key: string, enabled: boolean): Promise<void> {
     const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
     await SettingsService.setFeature(hostCtx, key, enabled);
-  }
-
-  /** 联网搜索来源：DeepSeek 服务端工具 / 百智云 OpenAPI。 */
-  private async selectWebProvider(provider: string): Promise<void> {
-    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    await SettingsService.setWebSearchProvider(hostCtx, provider);
-    this.showToolProviderSheet = false;
-  }
-
-  private webProviderDisplay(): string {
-    return this.webSearchProvider === WEB_SEARCH_PROVIDER_BAIZHI
-      ? this.t('settings_web_provider_baizhi') : this.t('settings_web_provider_deepseek');
-  }
-
-  private async saveWebKey(): Promise<void> {
-    const text: string = this.webKeyInput.trim();
-    if (text.length === 0) {
-      return;
-    }
-    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    await SettingsService.setBaizhiWebKey(hostCtx, text);
-    this.webKeyInput = '';
-    this.showWebKeySheet = false;
-  }
-
-  private async clearWebKey(): Promise<void> {
-    const hostCtx = this.getUIContext().getHostContext() as common.UIAbilityContext;
-    await SettingsService.setBaizhiWebKey(hostCtx, '');
-    this.webKeyInput = '';
-    this.showWebKeySheet = false;
   }
 }
