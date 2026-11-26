@@ -7,6 +7,13 @@ import 'package:http/http.dart' as http;
 import '../models/chat_models.dart';
 import '../models/provider.dart';
 
+/// DeepSeek 对话能力（联网、阅读链接、文件、内容安全、会话标题）官方指定模型。
+///
+/// Business Rule: 这些扩展能力只在 `deepseek-flash` 下保证可用；`deepseek-v4-pro`
+/// 不支持图像理解，文件/联网等能力也没有官方保证。选中其他 DeepSeek 模型时由
+/// `ChatController` 在发送前自动切回本模型，避免静默降级。
+const String deepSeekFlashModel = 'deepseek-flash';
+
 /// Fetches the live model list from an OpenAI-compatible `/models` endpoint.
 class ModelService {
   const ModelService._();
@@ -97,8 +104,8 @@ class ModelService {
     }
     if (providerId == 'deepseek') {
       // 官方已于 2026-07-24 下线 deepseek-chat / deepseek-reasoner（见 V4 预览版公告），
-      // 现行模型为 deepseek-flash 与 deepseek-v4-pro；联网服务端工具也只在这两个模型下可用。
-      return _toModelInfos(<String>['deepseek-flash', 'deepseek-v4-pro']);
+      // 现行模型为 deepseek-flash 与 deepseek-v4-pro；对话扩展能力优先使用 flash。
+      return _toModelInfos(<String>[deepSeekFlashModel, 'deepseek-v4-pro']);
     }
     if (providerId == 'kimi') {
       return _toModelInfos(<String>[

@@ -27,6 +27,25 @@ CharacterCard emptyCharacter() => CharacterCard(
       createdAt: 0,
     );
 
+/// DeepSeek 服务端扩展能力是否要求 `deepseek-flash`。
+///
+/// Business Rule: 官方《联网工具》《文件解析》《模型内容安全》《会话标题》都要求
+/// `deepseek-flash`；`deepseek-v4-pro` 不支持图像理解。只要任一能力开启，发送前
+/// 就把模型切回 flash，宁可改变用户选择也不静默降级。
+bool requiresDeepSeekFlash({
+  required String providerId,
+  required bool webSearch,
+  required bool files,
+  required bool readUrl,
+  required bool safety,
+  required bool title,
+}) {
+  if (providerId != 'deepseek') {
+    return false;
+  }
+  return webSearch || files || readUrl || safety || title;
+}
+
 /// Owns session tree state, streaming and model selection.
 ///
 /// Concurrency notes:
@@ -730,6 +749,35 @@ class ChatController extends ChangeNotifier {
     return true;
   }
 
+  /// DeepSeek 服务端扩展能力是否已开启（联网走百智云时不算服务端工具）。
+  bool get _needsDeepSeekFlash => requiresDeepSeekFlash(
+        providerId: _currentProviderId,
+        webSearch: _enableWebSearch &&
+            _settings.webSearchProvider != webSearchProviderBaizhi,
+        files: _settings.featureFiles,
+        readUrl: _settings.featureReadUrl,
+        safety: _settings.featureSafety,
+        title: _settings.featureTitle,
+      );
+
+  /// 发送前把 DeepSeek 模型切回 `deepseek-flash`，并给出可解释的提示。
+  ///
+  /// 只改当前请求用的模型与会话记录，用户之后关闭全部扩展能力仍可手动选回 v4-pro。
+  void _ensureDeepSeekFlashModel() {
+    if (!_needsDeepSeekFlash || _currentModelId == deepSeekFlashModel) {
+      return;
+    }
+    _currentModelId = deepSeekFlashModel;
+    final ChatSession? session = currentSession;
+    if (session != null) {
+      session.modelId = _currentModelId;
+    }
+    _noticeText =
+        '联网/文件/内容安全/会话标题等能力需要 $deepSeekFlashModel，已自动切换模型';
+    unawaited(_saveState());
+    notifyListeners();
+  }
+
   // ── Sending and streaming ──
 
   Future<void> sendMessage(String text) async {
@@ -766,6 +814,8 @@ class ChatController extends ChangeNotifier {
     ChatMessage parentMessage,
     CharacterCard speaker,
   ) async {
+    // 联网/文件/安全/标题等能力只用 deepseek-flash 有官方保证；必须在组装请求前切。
+    _ensureDeepSeekFlashModel();
     final ChatMessage assistant = buildMessage(
       MessageRole.assistant,
       '',
