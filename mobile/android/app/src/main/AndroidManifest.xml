@@ -1,5 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- 应用内下载 APK 后拉起系统安装页需要该权限；用户仍要在系统里允许「安装未知应用」。
+         本应用走 Gitee/GitHub 侧载分发，不依赖 Google Play 的更新政策。 -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES"/>
     <application
         android:label="openchat"
         android:name="${applicationName}"
@@ -31,6 +34,16 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+        <!-- 应用内更新：把下载好的 APK 以 content:// 授权给系统包安装器读。 -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

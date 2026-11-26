@@ -8,6 +8,7 @@ import 'state/chat_controller.dart';
 import 'state/settings_controller.dart';
 import 'ui/app_lock_gate.dart';
 import 'ui/pages/chat_page.dart';
+import 'ui/widgets/update_install_host.dart';
 
 class BalanceApp extends StatelessWidget {
   const BalanceApp({
@@ -67,7 +68,7 @@ class _AppView extends StatelessWidget {
           ),
         );
       },
-      home: const StartupGate(),
+      home: const UpdateInstallHost(child: StartupGate()),
     );
   }
 }

@@ -6,9 +6,12 @@ import '../../core/app_version.dart';
 import '../../core/i18n/settings_strings.dart';
 import '../../core/theme/app_skins.dart';
 import '../../core/theme/app_colors.dart';
+import '../../data/services/apk_update_service.dart';
 import '../../data/services/preferences_service.dart';
 import '../../data/services/update_service.dart';
 import '../../state/settings_controller.dart';
+import '../widgets/update_download_sheet.dart';
+import '../widgets/update_install_host.dart';
 import 'assets_page.dart';
 
 
@@ -292,7 +295,7 @@ class SettingsPage extends StatelessWidget {
       );
       return;
     }
-    await showDialog<void>(
+    final bool? go = await showDialog<bool>(
       context: context,
       builder: (BuildContext ctx) => AlertDialog(
         title: Text('发现新版本 v${info.version}'),
@@ -301,22 +304,47 @@ class SettingsPage extends StatelessWidget {
         ),
         actions: <Widget>[
           TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
+            onPressed: () => Navigator.of(ctx).pop(false),
             child: const Text('以后再说'),
           ),
           FilledButton(
-            onPressed: () {
-              Navigator.of(ctx).pop();
-              launchUrl(
-                Uri.parse(info.downloadUrl),
-                mode: LaunchMode.externalApplication,
-              );
-            },
-            child: const Text('去下载'),
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('立即更新'),
           ),
         ],
       ),
     );
+    if (go != true || !context.mounted) {
+      return;
+    }
+    await _startUpdate(context, info);
+  }
+
+  /// 应用内下载 APK 并拉起系统安装页；非 Android 或非直链仍回退浏览器。
+  Future<void> _startUpdate(BuildContext context, UpdateInfo info) async {
+    if (!ApkUpdateService.isSupported ||
+        !ApkUpdateService.isApkUrl(info.downloadUrl)) {
+      // iOS 没有系统包安装器、HarmonyOS 不允许三方装 HAP，仍走外部浏览器。
+      await launchUrl(
+        Uri.parse(info.downloadUrl),
+        mode: LaunchMode.externalApplication,
+      );
+      return;
+    }
+    final int? id = await ApkUpdateService.startDownload(
+      url: info.downloadUrl,
+      fileName: ApkUpdateService.apkFileName(info.version),
+    );
+    if (!context.mounted) {
+      return;
+    }
+    if (id == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('下载启动失败，请检查网络后重试')),
+      );
+      return;
+    }
+    await showApkDownloadSheet(context);
   }
   @override
   Widget build(BuildContext context) {
@@ -515,6 +543,42 @@ class SettingsPage extends StatelessWidget {
                           style: TextStyle(fontSize: 12, color: c.textMuted),
                         ),
                         onTap: () => _checkUpdate(context),
+                      ),
+                      // 下载中/已下载时常驻一行，方便从任何页面回来继续看进度或安装。
+                      ValueListenableBuilder<ApkDownloadState>(
+                        valueListenable: ApkUpdateService.state,
+                        builder: (
+                          BuildContext ctx,
+                          ApkDownloadState state,
+                          Widget? _,
+                        ) {
+                          if (!state.isActive && !state.isCompleted) {
+                            return const SizedBox.shrink();
+                          }
+                          final bool done = state.isCompleted;
+                          return _SettingsRow(
+                            title: done ? '更新包已下载' : '正在下载更新',
+                            subtitle: done
+                                ? '点此打开系统安装页'
+                                : '${state.sizeLabel} · ${state.percentLabel}（可后台下载）',
+                            trailing: done
+                                ? Icon(
+                                    Icons.system_update_alt_rounded,
+                                    size: 20,
+                                    color: c.accent,
+                                  )
+                                : Text(
+                                    state.percentLabel,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: c.accent,
+                                    ),
+                                  ),
+                            onTap: () => done
+                                ? installDownloadedUpdate(context)
+                                : showApkDownloadSheet(context),
+                          );
+                        },
                       ),
                       _SettingsRow(
                         title: '开源主页',
