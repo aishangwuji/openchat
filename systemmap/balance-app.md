@@ -40,6 +40,23 @@ last_verified: 2026-11-25
 > 状态：群聊已下线（相关代码注释保留，运行时恒为单聊）；以下“群聊 Phase 1”小节为历史记录。
 > 跨平台移动端（Android/iOS，Flutter）见 `systemmap/balance-app-mobile.md`，与鸿蒙端并列维护。
 
+## 长会话空回答可观测性修复（2026-11-26，构建通过）
+
+- 现象：用户反馈「对话到约 50 轮后看不到 AI 回答」。
+- 排查结论：50 轮不是任何硬阈值（唯一历史上限是 `MAX_HISTORY_MESSAGES = 20`，线上消息 ≤ 41 条，
+  远低于 1M 上下文）。真正造成「完全没有气泡」的是**空回答被按成功收尾**：助手消息
+  `status='success'` 且 `content` / `reasoningContent` 都为空时，`MessageBubble` 只剩一个空 Column
+  （约 10vp），界面上什么也看不到。
+- 修复（`ChatService.ets`）：新增 `sawOutput` / `finishReason` / `chunkCount` 三个流内状态；
+  `dataEnd` 时若「无正文、无思考、无客户端工具、无 `server_tool_calls`、无拒答」一律改走
+  `onError`，文案按 `finish_reason` 区分（`insufficient_system_resource` / `aborted` / 未知值）；
+  `content_filter` 设置 `sawOutput`，保证仍走 `onRefusal` 的安全提示。新增 `stream end`
+  与 `request` 两条诊断日志（只记条数/开关/finish_reason/chunk 数，不记正文与 Key）。
+- 修复（`ChatView.ets`）：`onComplete` 加同口径兜底（防旧路径与竞态）；历史里遗留的空
+  assistant 气泡显示「本轮没有返回内容，点此重试」，点击复用 `regenerateFrom`。
+- 未修（另行登记）：带 tools 请求时历史 `reasoning_content` 未回传、`server_tool_calls` 被裁剪，
+  是否为 400 触发源需要真机日志确认，见 `techdebt/TD-013-deepseek-tool-turn-replay.md`。
+
 ## 内容安全拒答提示（2026-11-25，构建通过）
 
 - 按官方《模型内容安全》核对：`safety_check: {level:'high'}` 只在开关开启且服务商为 DeepSeek 时
