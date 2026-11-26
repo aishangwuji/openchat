@@ -45,8 +45,8 @@ covered_paths:
   - mobile/test/citation_test.dart
   - mobile/test/app_lock_auth_mode_test.dart
   - mobile/test/ui_smoke_test.dart
-last_verified_commit: 5e7d309
-last_verified: 2026-11-25
+last_verified_commit: a61ac06
+last_verified: 2026-11-26
 ---
 
 # BalanceApp Mobile（Flutter Android/iOS）systemmap
@@ -307,6 +307,34 @@ last_verified: 2026-11-25
 未跟 demo 的部分（移动端不适用或有代价）：分栏式搜索面板（手机改为底部面板）、
 hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）、继续生成（需 beta 接口
 与 prefix）、会话导入导出（两端都缺，见 TD-004/TD-006）。
+
+## 应用内更新：下载 + 系统安装页（2026-11-26，真机验证通过）
+
+- **问题**：原来点「去下载」跳浏览器，用户要自己找文件、自己点安装，像「乱七八糟的跳转」。
+- **做法**：`data/services/apk_update_service.dart`（MethodChannel `…/apk_update` +
+  EventChannel `…/apk_update_progress`）→ `ApkUpdateChannel.kt`。
+  - 下载：系统 **DownloadManager**，目标 `getExternalFilesDir(DIRECTORY_DOWNLOADS)`（应用私有外部目录，
+    不需要存储权限）；`VISIBILITY_VISIBLE_NOTIFY_COMPLETED` 让通知栏也能看到；
+    后台/杀进程都会继续，进度靠 300ms 轮询 `COLUMN_BYTES_DOWNLOADED_SO_FAR` 推给 Dart。
+  - 安装：`FileProvider`（authority `${applicationId}.fileprovider`，只暴露 `Download/`）→
+    `ACTION_VIEW` + `application/vnd.android.package-archive` + `FLAG_GRANT_READ_URI_PERMISSION`，
+    交给系统 PackageInstaller。没有「安装未知应用」权限时返回 `need_permission`，
+    Dart 弹「去设置」（`ACTION_MANAGE_UNKNOWN_APP_SOURCES`）而不是静默失败。
+- **UI**：`ui/widgets/update_download_sheet.dart` 底部面板（进度条 + 已下/总量 + 后台下载/取消）；
+  设置>关于 常驻一行「正在下载 x% / 更新包已下载」；`ui/widgets/update_install_host.dart` 挂在
+  `home` 外层，下载完成且应用在前台时自动拉起安装页（Android 10+ 不允许后台启动 Activity，
+  退到后台时等 `resumed` 再补一次）。
+- **边界**：只有 `.apk` 直链才走应用内（`isApkUrl`），release 页面/非 Android 仍回退浏览器；
+  文件名 `openchat-<version>.apk` 会剔除路径分隔符与前导点；开始新下载时清掉历史 `openchat-*.apk`。
+  应用被系统杀掉后进度状态会丢（下载本身仍在跑，通知栏可见），重新打开后要重新「检查更新」才会接上。
+- **验证（Honor ANB-AN00 / Android 15 / SDK 35，串号 A7PEUT3407000681）**：探针实跑真实 release 资产
+  `openchat-1.0.2.apk`（71,641,355 B）：进度事件 7%→50% 正常推进，落盘文件字节数与 release 完全一致；
+  授予 `REQUEST_INSTALL_PACKAGES` appop 后 `install()` 拉起
+  `com.android.packageinstaller/.PackageInstallerActivity`，其 `dat=` 为系统从我们 FileProvider
+  复制出的暂存 APK——下载、进度、FileProvider 授权、安装页四段全通（随后返回取消，未覆盖安装）。
+  缺权限时的 `need_permission` 分支也实测命中（`canInstallPackages=false`）。
+- **合规备注**：`REQUEST_INSTALL_PACKAGES` 用于自更新不符合 Google Play 政策，本应用走
+  Gitee/GitHub 侧载分发，不依赖 Play；若将来上架 Play，这里必须改回商店内更新。
 
 ## 生图工具与鸿蒙端对齐为「声明式」（2026-11-25，analyze/test 通过）
 

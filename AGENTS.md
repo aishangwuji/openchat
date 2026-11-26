@@ -99,6 +99,8 @@
 - 能力与服务位置（追平鸿蒙端）：
   - 设置「工具」：服务商（DeepSeek/百智云）、两套百智云 Key、7 个功能开关、所在地；
   - `services/update_service.dart`：Gitee→GitHub 双源检查更新；
+  - `services/apk_update_service.dart` + `android/.../ApkUpdateChannel.kt`：Android 应用内下载
+    APK（系统 DownloadManager，后台可继续）→ FileProvider → 系统安装页；进度走 EventChannel；
   - `services/chat_service.dart`：`deepseek_web_search`、`deepseek_read_url`、
     `generate_image` 函数工具、`safety_check`、`title.enabled`、`delta.annotations` 引用、
     `delta.server_tool_calls`（含阅读链接 signature）原样留存与回传、`latest_reminder` 注入；
@@ -110,7 +112,16 @@
     KeyStore `key_baizhi_web` / `key_baizhi_image`。
 - 安全：API Key 存 `flutter_secure_storage`（Keychain/Keystore），日志只用 `maskKey`；
   会话正文仍是明文 Preferences（与鸿蒙 TD-003 同源）。
-- 验证边界：本机无模拟器/真机，只能 `flutter analyze` + `flutter test`；录音、相册、
-  文件选择、音频播放、生图需按 `techdebt/TD-004-*.md` 的「真机回归清单」实测。
+- Android 真机（2026-11-26 起本机可用）：`adb` 在 `D:\tools\scrcpy-win64-v5.0.1\adb.exe`（不在 PATH），
+  serial `A7PEUT3407000681`（Honor ANB-AN00 / Android 15）；装包
+  `flutter build apk --debug` → `adb install -r -d build\app\outputs\flutter-apk\app-debug.apk`，
+  启动 `adb shell am start -n com.aishangwuji.openchat/.MainActivity`，日志
+  `adb logcat -s flutter:*`。该机开着平行空间/分身（user 100/128），`pm list packages` 不带
+  `--user 0` 会报 SecurityException；Flutter 语义树默认不上报，`uiautomator dump` 拿不到文字，
+  UI 层验证要么用 `integration_test`，要么临时写一个探针入口（`flutter build apk -t lib/xxx.dart`）。
+- 验证边界：录音、相册、文件选择、音频播放、生图仍需按 `techdebt/TD-004-*.md` 的真机回归清单实测。
+- 应用内更新（2026-11-26）：Android 端已改为自己下载 APK（系统 DownloadManager）+ FileProvider +
+  系统 PackageInstaller，不要再改回「跳浏览器」；实现见 `data/services/apk_update_service.dart` 与
+  `android/.../ApkUpdateChannel.kt`，iOS/鸿蒙仍只能外部浏览器。
 - 认知文档：`systemmap/balance-app-mobile.md`；发布缺口：`techdebt/TD-004-*.md`；
   两端差距历史：`techdebt/TD-006-*.md`。

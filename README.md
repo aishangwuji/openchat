@@ -91,7 +91,12 @@ hdc -t <serial> shell aa start -a EntryAbility -b com.example.openchat
 - 入口：设置 → 关于 → 检查更新；启动时也会静默检查一次（12 小时节流）。
 - 逻辑：`UpdateService` 运行时读 `BundleInfo.versionName`，与 release 的 `tag_name` 做逐段数值比较；
   发现新版弹窗展示 release 说明，「去下载」打开 HAP 直链（没有资产则回退 release 页面）。
-- 版本号在 `BalanceApp/AppScope/app.json5`（`versionName` / `versionCode` 同步递增）。
+- **移动端（Android）是应用内下载**：设置 → 关于 → 检查更新 → 立即更新，直接在下拉面板里
+  显示进度条与已下/总字节，可「后台下载」（系统 DownloadManager 负责，退到后台或杀进程都会继续）；
+  下完自动拉起系统「安装未知应用」→ 安装页，全程不跳浏览器。首次需在系统里允许本应用安装应用。
+  iOS 与鸿蒙仍走外部浏览器/商店（系统不允许三方静默装包）。
+- 版本号在 `BalanceApp/AppScope/app.json5`（`versionName` / `versionCode` 同步递增）；
+  移动端在 `mobile/pubspec.yaml` 的 `version:`。
 
 ### 发一个版本（维护者）
 
