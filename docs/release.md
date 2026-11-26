@@ -30,6 +30,7 @@ const String appVersion = '1.0.4';
 > `com.example.openchat` 改成 `com.aishangwuji.openchat`，v1.0.2 用户升级后会装成
 > 第二个应用，旧聊天记录/API Key 全部读不到，v1.0.3 已撤回。要换包名必须先做数据
 > 导出/导入迁移（见 `techdebt/TD-015`）；`namespace` 可以单独改。
+> v1.0.2 的旧更新器还会优先选 `.hap`，Android 用户需手动下载 APK；v1.0.4 起已改为只认 APK。
 
 > 打包前确认本机签名有效（`bundleName` 与证书一致）。签名与安装的机制见
 > [signing.md](signing.md)；仓库里不含签名材料，Release 里的 HAP 是作者调试签名，

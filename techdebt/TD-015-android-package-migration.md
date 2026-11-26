@@ -13,6 +13,9 @@
   新包读不到旧包的 SharedPreferences / EncryptedSharedPreferences / Keystore，
   表现为聊天历史空白、API Key 与设置全部丢失；
 - 两版签名相同（Android Debug 证书），安装器不会报签名冲突，问题更隐蔽；
+- v1.0.2 的 Android 检查更新还优先选 `.hap`（`82926a6` 之后才改为只认 APK），
+  所以 v1.0.2 用户的应用内更新会拿到 HAP；v1.0.4 的 release 说明已要求手动下载 APK，
+  v1.0.4 起更新器只认 APK；
 - HAP 的 `bundleName` 一直是 `com.example.openchat`，鸿蒙端不受影响；
 - v1.0.3 已标记为 pre-release 并加“请勿安装”说明，v1.0.4 恢复旧 `applicationId`。
 
