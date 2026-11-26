@@ -1,6 +1,7 @@
 # TD-010 联网搜索功能官方文档合规审核
 
-- 状态：主要缺陷已修复（2026-11-25）；遗留项待排期
+- 状态：主要缺陷已修复（2026-11-25）；移动端模型/历史/搜索失败/生成中断于 2026-11-26 补修；
+  余项见 `TD-013`
 - 影响范围：`BalanceApp/entry/src/main/ets/services/{ChatService,WebSearchService}.ets`、
   `BalanceApp/entry/src/main/ets/pages/ChatView.ets`、`BalanceApp/entry/src/main/ets/models/ChatModels.ets`；
   `mobile/lib/data/services/chat_service.dart`、`mobile/lib/state/chat_controller.dart`、
@@ -35,21 +36,30 @@
    末块 `error`（生成中失败）同样提取；`finish_reason=length` 通过 `onIncomplete`
    在气泡下方提示；`settled` 防 err 回调与 `dataEnd` 重复收尾。
 
-## 遗留（未改）
+## 遗留（2026-11-26 更新）
 
 1. **图片搜索 `image_url` 未展示**（两端）：文档说明该字段仅供展示，可先不做。
-2. **来源口径**：鸿蒙端把深搜 `open_page` 的页面也并入 `sources` 并计入「N 个来源」，
+2. **来源口径**：鸿蒙端与移动端都把深搜 `open_page` 的页面也并入 `sources` 并计入「N 个来源」，
    与 `citations`（真正被引用的来源）口径不一致，会高报来源数。
-3. **模型未限定 `deepseek-flash`**：文档写「请使用 deepseek-flash」，代码同时放开
-   `deepseek-v4-pro`（注释称实测可用）。属放宽而非报错。
-4. **历史截断可能丢 signature**：20 条 / 12000 字预算在长会话里会丢掉带 signature 的
-   助手消息，后续轮次读不到旧网页。
+3. ~~**模型未限定 `deepseek-flash`**~~：移动端已修（`01e801f`），开启任一 DeepSeek 扩展能力时
+   发送前自动切到 flash；鸿蒙端仍待同步。
+4. ~~**历史截断可能丢 signature**~~：移动端已修（`83d3b6a`），预算放宽到 60 条/100000 字，
+   且正文/附件/`server_tool_calls` 任一非空即保留；超长会话仍可能丢最早轮次。
 5. **`server_tool_calls` 非字面「原样」**：回传前裁剪成只含 signature 的调用（服务端语义等价，
-   文档也允许整体丢弃该字段，但不等同于逐字节回传）。
-6. **搜索失败提示偏乐观**：`error_code=unavailable` 时鸿蒙端显示「已检索 N 个来源，正在整理答案…」，
-   移动端不更新提示（停在「正在联网搜索…」）。
+   文档也允许整体丢弃该字段，但不等同于逐字节回传）。2026-11-26 补了「超 200KB 时按调用
+   粒度保留」，不再整轮丢失。
+6. ~~**搜索失败提示偏乐观**~~：移动端已修（`fa11872`），失败时显示
+   「链接读取失败/网页打开失败/搜索失败（code）」，不再停在「正在联网搜索…」。
 7. **400 真机行为未验证**：鸿蒙 `requestInStream` 对 4xx 是否走 err 回调未知；若走 err，
    新增的响应体解析不会触发，界面显示「网络请求失败: ...」而不是 `error.message`。
+8. ~~**生成中失败未处理**~~：移动端已修（`d2233ee`），末块 `error`、无 `[DONE]`、
+   `insufficient_system_resource` / `aborted` 都转成失败事件；鸿蒙端仍待同步。
+
+## 2026-11-26 补修（移动端）
+
+- 模型锁定、历史预算、搜索/读链接失败提示、生成中断传播，详见 `systemmap/balance-app-mobile.md`
+  的「2026-11-26 按官方 Chatbot 文档核验后的修复」。
+- 验证：`flutter analyze` 0 issue、`flutter test` 97 项、debug APK 构建成功；真实 SSE 仍待真机。
 
 ## 待真机回归
 

@@ -12,8 +12,9 @@
 2. **iOS 未编译验证**：开发机为 Windows，没有 Xcode。iOS target、bundle id
    `com.example.balanceapp`、`NSFaceIDUsageDescription` 已配置，但仍需在
    macOS/CI 上执行 `flutter build ios --release --no-codesign` 与真机回归。
-3. **运行时验证未完成**：本机 AVD 的 `system-images/android-36.1/...` 缺少
-   `system.img`，无法启动；也没有连接 Android 真机。当前只验证到
+3. **运行时验证未完成**：2026-11-26 起本机可连 Android 15 真机（Honor ANB-AN00，
+   serial `A7PEUT3407000681`），但真实 SSE、文件解析、语音/朗读、拒答形态仍需用户提供
+   API Key 后逐项回归；AVD 的 `system.img` 仍缺失。当前只验证到
    `flutter analyze`、`flutter test`、`flutter build apk --debug`。
 4. **应用图标仍是 Flutter 默认图标**：Android mipmap 与 iOS AppIcon 未替换为
    品牌图标；鸿蒙端已有 `startIcon.png`，可直接派生多尺寸资源。
@@ -58,4 +59,9 @@
 8. 生图：`generate_image` 被调用后显示「正在生成图片…」，1~5 分钟内出图，
    失败有可读原因，图片过期后显示占位；
 9. 内容安全：开启后触发拒答时内容被清空并提示；
-10. 检查更新：设置 > 关于 > 检查更新能拿到最新 release 并跳转下载。
+10. 检查更新：设置 > 关于 > 检查更新能拿到最新 release 并跳转下载；
+11. 模型锁定：DeepSeek 选 `deepseek-v4-pro` 且联网/文件等开关开启时发送，应自动切回
+    `deepseek-flash` 并显示提示；
+12. 纯附件：只上传文件/图片、不输入文字也能发送，模型能基于文件作答；
+13. 生成中断：流式中断或末块 error 时，气泡显示错误而不是半截回答当成功；
+14. 读链接失败：`url_not_allowed` / 不可达链接应出现「链接读取失败（code）」提示。
