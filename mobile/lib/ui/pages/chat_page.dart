@@ -131,10 +131,11 @@ class _ChatPageState extends State<ChatPage> {
 
   Future<void> _send() async {
     final String text = _input.text.trim();
-    if (text.isEmpty) {
+    final ChatController chat = context.read<ChatController>();
+    // 允许「只发文件/图片」：有附件时文字可以留空，由服务端只拼 file 块。
+    if (text.isEmpty && chat.pendingAttachments.isEmpty) {
       return;
     }
-    final ChatController chat = context.read<ChatController>();
     _input.clear();
     await chat.sendMessage(text);
     _scrollToBottom();
@@ -620,6 +621,7 @@ class _ChatPageState extends State<ChatPage> {
     final double bottomInset =
         mq.viewInsets.bottom > 0 ? 0 : mq.viewPadding.bottom;
     final bool hasText = _input.text.trim().isNotEmpty;
+    final bool canSend = hasText || chat.pendingAttachments.isNotEmpty;
     return Padding(
       padding: EdgeInsets.fromLTRB(12, 6, 12, 8 + bottomInset),
       child: Container(
@@ -735,7 +737,7 @@ class _ChatPageState extends State<ChatPage> {
                     color: c.dangerText,
                     onTap: chat.stopGenerating,
                   )
-                else if (hasText)
+                else if (canSend)
                   SizedBox(
                     width: 36,
                     height: 36,

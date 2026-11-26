@@ -801,7 +801,7 @@ class ChatController extends ChangeNotifier {
     if (session == null || !_canSend()) {
       return;
     }
-    if (session.title == '新对话') {
+    if (session.title == '新对话' && trimmed.isNotEmpty) {
       session.title = autoTitleFor(trimmed);
     }
     final List<ChatMessage> path = activePath;
@@ -854,7 +854,8 @@ class ChatController extends ChangeNotifier {
     // Business Rule: 检索失败降级为普通回答，绝不阻塞对话。
     String webContext = '';
     if (_enableWebSearch &&
-        _settings.webSearchProvider == webSearchProviderBaizhi) {
+        _settings.webSearchProvider == webSearchProviderBaizhi &&
+        parentMessage.content.trim().isNotEmpty) {
       assistant
         ..searching = true
         ..searchHint = '正在联网搜索…';

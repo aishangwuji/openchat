@@ -134,27 +134,29 @@ class _UserBubble extends StatelessWidget {
                   ),
               ],
             ),
-          ),        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          decoration: BoxDecoration(
-            color: c.accentSoftSelected,
-            borderRadius: const BorderRadius.only(
-              topLeft: Radius.circular(20),
-              topRight: Radius.circular(6),
-              bottomLeft: Radius.circular(20),
-              bottomRight: Radius.circular(20),
-            ),
-            border: Border.all(color: c.accentOutline),
           ),
-          child: Text(
-            message.content,
-            style: TextStyle(
-              fontSize: 15,
-              height: 1.55,
-              color: c.userBubbleText,
+        if (message.content.isNotEmpty)
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: BoxDecoration(
+              color: c.accentSoftSelected,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(20),
+                topRight: Radius.circular(6),
+                bottomLeft: Radius.circular(20),
+                bottomRight: Radius.circular(20),
+              ),
+              border: Border.all(color: c.accentOutline),
+            ),
+            child: Text(
+              message.content,
+              style: TextStyle(
+                fontSize: 15,
+                height: 1.55,
+                color: c.userBubbleText,
+              ),
             ),
           ),
-        ),
       ],
     );
   }

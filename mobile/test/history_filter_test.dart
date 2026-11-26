@@ -22,8 +22,7 @@ ChatMessage _message(
 }
 
 void main() {
-  test('只带附件或只带工具调用的消息仍进入历史', () {
-    expect(
+  test('只带附件或只带工具调用的消息仍进入历史', () {    expect(
       isReplayableMessage(
         _message(
           MessageRole.user,
@@ -79,5 +78,27 @@ void main() {
     expect(out.length, greaterThan(40));
     // 最新一条必须在，最老一条应被预算裁掉。
     expect(out.last['content'], 'y' * 2001);
+  });
+
+  test('纯附件消息只生成 file 块，不拼空 text 块', () {
+    final ChatMessage message = _message(
+      MessageRole.user,
+      '',
+      attachments: const <MessageAttachment>[
+        MessageAttachment(
+          fileId: 'file-1',
+          fileName: 'report.pdf',
+          purpose: 'text_recognition',
+          bytes: 10,
+        ),
+      ],
+    );
+    final List<Map<String, dynamic>> out =
+        ChatService.buildApiMessages(<ChatMessage>[message], null, true);
+    final List<Map<String, String>> parts =
+        (out.single['content'] as List<Object?>).cast<Map<String, String>>();
+    expect(parts.length, 1);
+    expect(parts.single['type'], 'file');
+    expect(parts.single['file_id'], 'file-1');
   });
 }
