@@ -40,5 +40,5 @@
 
 ## 验证
 
-- 2026-11-26：`flutter analyze` 0 issue、`flutter test` 97 项、`flutter build apk --debug` 成功。
+- 2026-11-26：`flutter analyze` 0 issue、`flutter test` 98 项、`flutter build apk --debug` 成功。
 - 本轮只做静态与单测；未在真机发起真实请求（需要用户自己的 API Key）。

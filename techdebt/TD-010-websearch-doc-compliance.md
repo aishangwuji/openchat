@@ -1,7 +1,7 @@
 # TD-010 联网搜索功能官方文档合规审核
 
 - 状态：主要缺陷已修复（2026-11-25）；移动端模型/历史/搜索失败/生成中断于 2026-11-26 补修；
-  余项见 `TD-013`
+  余项见 `TD-014`
 - 影响范围：`BalanceApp/entry/src/main/ets/services/{ChatService,WebSearchService}.ets`、
   `BalanceApp/entry/src/main/ets/pages/ChatView.ets`、`BalanceApp/entry/src/main/ets/models/ChatModels.ets`；
   `mobile/lib/data/services/chat_service.dart`、`mobile/lib/state/chat_controller.dart`、
@@ -59,7 +59,7 @@
 
 - 模型锁定、历史预算、搜索/读链接失败提示、生成中断传播，详见 `systemmap/balance-app-mobile.md`
   的「2026-11-26 按官方 Chatbot 文档核验后的修复」。
-- 验证：`flutter analyze` 0 issue、`flutter test` 97 项、debug APK 构建成功；真实 SSE 仍待真机。
+- 验证：`flutter analyze` 0 issue、`flutter test` 98 项、debug APK 构建成功；真实 SSE 仍待真机。
 
 ## 待真机回归
 

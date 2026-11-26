@@ -50,7 +50,7 @@ covered_paths:
   - mobile/test/tts_limit_test.dart
   - mobile/test/file_upload_limit_test.dart
   - mobile/test/signature_limit_test.dart
-last_verified_commit: f31a8b0
+last_verified_commit: 66df07c
 last_verified: 2026-11-26
 ---
 
@@ -194,7 +194,7 @@ last_verified: 2026-11-26
 ## 验证状态（2026-11-26）
 
 - `flutter analyze`：0 issue。
-- `flutter test`：97 项通过（余额解析/边界、切段/掩码、引用改写、厂商端点、页面冒烟、
+- `flutter test`：98 项通过（余额解析/边界、切段/掩码、引用改写、厂商端点、页面冒烟、
   应用锁浮层与解锁方式回退、Markdown 气泡、模型路由、历史预算、TTS 计费字符、
   文件上限、signature 保留）。
 - `flutter build apk --debug`：成功（2026-11-26）。
@@ -212,7 +212,7 @@ last_verified: 2026-11-26
   具体用哪种生物识别由系统弹窗决定。
 - Markdown 由 `gpt_markdown` 渲染，代码高亮/复制为库能力；Mermaid 与公式未接。
 - 来源摘要行按 `sources` 计数，深搜 `open_page` 打开的网页也计入，口径比 citations 偏大
-  （见 `TD-013`）。图片搜索结果的 `image_url` 仍未展示。
+  （见 `TD-014`）。图片搜索结果的 `image_url` 仍未展示。
 - 聊天历史有 60 条 / 100000 字预算；超长会话仍可能丢掉最早的附件或 signature 轮次。
 - 录音、相册、文件选择、音频播放、真实 SSE 与拒答形态仍未真机回归（`TD-004`）。
 
@@ -391,7 +391,7 @@ hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）�
   `reasoning_content` 且丢弃「只有思考没有正文」的空回合（与鸿蒙端一致）；Kimi / MiMo
   行为不变（`dddbbc6`）。
 - **遗留**：图片搜索 `image_url`、来源口径、模型限定 `deepseek-flash`、历史截断丢 signature、
-  搜索失败提示，见 `techdebt/TD-010`（模型/历史/搜索失败已于 2026-11-26 修复，余项见 `TD-013`）。
+  搜索失败提示，见 `techdebt/TD-010`（模型/历史/搜索失败已于 2026-11-26 修复，余项见 `TD-014`）。
 - 验证：`flutter analyze` 零 issue、`flutter test` 61 项通过；真实 SSE 表现仍需真机回归。
 
 ## 内容安全拒答提示（2026-11-25，analyze/test 通过）
@@ -409,7 +409,7 @@ hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）�
 ## 2026-11-26 按官方 Chatbot 文档核验后的修复（analyze/test/build 通过）
 
 以官方《构建 Chatbot》九项能力为基线，按 Chat Completions 契约逐条核验（只读代码 +
-官方文档），发现并修复以下问题，提交 `01e801f`..`f31a8b0`：
+官方文档），发现并修复以下问题，提交 `01e801f`..`66df07c`：
 
 - **模型限定**：DeepSeek 开启联网/阅读链接/文件/内容安全/标题任一能力时，发送前把
   `_currentModelId` 切回 `deepseek-flash` 并提示；`deepseek-v4-pro` 不支持图像理解，
@@ -419,6 +419,9 @@ hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）�
 - **纯附件发送**：`+` 上传后不写字也能发；`_send`/发送按钮按附件放行；用户气泡不渲染空文本。
 - **流式失败**：解析末块 `{error:...}`、无 `[DONE]` 的断流、`insufficient_system_resource`
   与 `aborted`，统一转成失败事件，保留已收到的正文。
+- **空回答**：流正常结束但正文/思考/工具调用/生图均无产出时落成 error
+  「本轮没有返回内容，请重试」；历史遗留的空助手气泡显示重生成提示
+  （`hasAssistantOutput`，与鸿蒙端 `6933329` 同口径）。
 - **失败提示**：`call_completed.status=failed` 统一给「链接读取失败/网页打开失败/搜索失败
   （error.code）」；气泡在 content 为空且有 hint 时渲染。
 - **TTS**：上限按官方计费字符 10000（汉字 2）裁剪，超时放宽到 5 分钟。
@@ -426,5 +429,5 @@ hover 卡片、Mermaid / KaTeX（gpt_markdown 不含 mermaid；公式未接）�
 - **文件**：图片上限 64 MiB；单条消息最多 20 个文档。
 - **signature**：总量超 200KB 时按调用粒度保留，仅丢弃单个超大调用。
 - **入口收敛**：非 DeepSeek 服务商隐藏朗读/语音/附件入口。
-- 验证：`flutter analyze` 0 issue、`flutter test` 97 项通过、`flutter build apk --debug` 成功。
-  真实接口表现仍待真机回归；遗留项见 `techdebt/TD-013`。
+- 验证：`flutter analyze` 0 issue、`flutter test` 98 项通过、`flutter build apk --debug` 成功。
+  真实接口表现仍待真机回归；遗留项见 `techdebt/TD-014`。
