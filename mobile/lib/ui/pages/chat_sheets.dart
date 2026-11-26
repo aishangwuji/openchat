@@ -65,46 +65,8 @@ Future<void> showModelPicker(BuildContext context) async {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 12),
                       child: Text(
-                        '尚未配置服务商 API Key，请到「设置 > 资产监控」添加',
+                        '尚未配置 DeepSeek API Key，请到「设置 > 资产监控」添加',
                         style: TextStyle(fontSize: 13, color: c.textMuted),
-                      ),
-                    )
-                  else
-                    SizedBox(
-                      height: 34,
-                      child: ListView.separated(
-                        scrollDirection: Axis.horizontal,
-                        itemCount: chat.configuredProviders.length,
-                        separatorBuilder: (_, _) =>
-                            const SizedBox(width: 8),
-                        itemBuilder: (BuildContext context, int index) {
-                          final ProviderDefinition p =
-                              chat.configuredProviders[index];
-                          final bool selected =
-                              p.id == chat.currentProviderId;
-                          return InkWell(
-                            borderRadius: BorderRadius.circular(17),
-                            onTap: () => chat.selectProvider(p.id),
-                            child: Container(
-                              alignment: Alignment.center,
-                              padding:
-                                  const EdgeInsets.symmetric(horizontal: 14),
-                              decoration: BoxDecoration(
-                                color: selected ? c.accentSolid : c.fill,
-                                borderRadius: BorderRadius.circular(17),
-                              ),
-                              child: Text(
-                                p.name,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: selected
-                                      ? c.accentContrast
-                                      : c.textPrimary,
-                                ),
-                              ),
-                            ),
-                          );
-                        },
                       ),
                     ),
                   const SizedBox(height: 12),

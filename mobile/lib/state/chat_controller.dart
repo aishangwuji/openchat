@@ -7,11 +7,7 @@ import '../data/models/provider.dart';
 import '../core/utils/markdown_utils.dart';
 import '../data/services/auth_service.dart';
 
-import '../data/services/baizhi_web_search_service.dart';
-import 'dart:convert';
-
 import '../data/services/file_upload_service.dart';
-import '../data/services/image_gen_service.dart';
 import '../data/services/chat_service.dart';
 import '../data/services/chat_storage_service.dart';
 import '../data/services/key_store.dart';
@@ -62,16 +58,14 @@ bool isReplayableMessage(ChatMessage message) {
       message.serverToolCallsJson.isNotEmpty;
 }
 
-/// 助手本轮是否有可展示产出：正文 / 思考 / 服务端工具调用 / 生图结果。
+/// 助手本轮是否有可展示产出：正文 / 思考 / 服务端工具调用。
 ///
 /// Business Rule: 流正常关闭但一条产出都没有时不能落成 success，否则界面只剩
 /// 一个空白气泡（用户表现为「AI 回答不显示」）；拒答与错误走各自的状态。
 bool hasAssistantOutput(ChatMessage message) {
   return message.content.isNotEmpty ||
       (message.reasoningContent ?? '').isNotEmpty ||
-      message.serverToolCallsJson.isNotEmpty ||
-      message.imageState != null ||
-      message.imageUrls.isNotEmpty;
+      message.serverToolCallsJson.isNotEmpty;
 }
 
 /// Owns session tree state, streaming and model selection.
@@ -671,9 +665,8 @@ class ChatController extends ChangeNotifier {
 
   Future<void> loadConfiguredProviders() async {
     final List<ProviderDefinition> out = <ProviderDefinition>[];
-    // Only chat-capable providers: balance-only ones (Baizhi cookie wallet)
-    // store a session cookie that must never be sent to chat endpoints.
-    for (final ProviderDefinition p in chatProviders) {
+    // Only the single supported provider is loaded.
+    for (final ProviderDefinition p in providers) {
       final String key = await _keyStore.read(KeyStore.providerKey(p.id));
       if (key.trim().isNotEmpty) {
         out.add(p);
@@ -711,21 +704,6 @@ class ChatController extends ChangeNotifier {
       _fetchingModels = false;
       notifyListeners();
     }
-  }
-
-  Future<void> selectProvider(String providerId) async {
-    _currentProviderId = providerId;
-    final ChatSession? session = currentSession;
-    if (session != null) {
-      session.providerId = providerId;
-    }
-    await _reloadApiKey();
-    await refreshModelList();
-    if (thinkingSupported) {
-      _enableThinking = true;
-    }
-    await _saveState();
-    notifyListeners();
   }
 
   Future<void> selectModel(String modelId) async {
@@ -777,8 +755,7 @@ class ChatController extends ChangeNotifier {
   /// DeepSeek 服务端扩展能力是否已开启（联网走百智云时不算服务端工具）。
   bool get _needsDeepSeekFlash => requiresDeepSeekFlash(
         providerId: _currentProviderId,
-        webSearch: _enableWebSearch &&
-            _settings.webSearchProvider != webSearchProviderBaizhi,
+        webSearch: _enableWebSearch,
         files: _settings.featureFiles,
         readUrl: _settings.featureReadUrl,
         safety: _settings.featureSafety,
@@ -865,33 +842,7 @@ class ChatController extends ChangeNotifier {
         .map((ChatMessage m) => replayMessage(m, identityName))
         .toList(growable: false);
 
-    // 百智云联网搜索：发送前先检索，把摘要注入系统提示、来源挂到本条消息。
-    // Business Rule: 检索失败降级为普通回答，绝不阻塞对话。
-    String webContext = '';
-    if (_enableWebSearch &&
-        _settings.webSearchProvider == webSearchProviderBaizhi &&
-        parentMessage.content.trim().isNotEmpty) {
-      assistant
-        ..searching = true
-        ..searchHint = '正在联网搜索…';
-      notifyListeners();
-      try {
-        final String key = await _settings.readBaizhiWebKey();
-        final List<SearchSource> results =
-            await BaizhiWebSearchService.search(parentMessage.content, key);
-        if (results.isNotEmpty) {
-          assistant.sources = results;
-          webContext = BaizhiWebSearchService.buildContext(results);
-        }
-      } catch (error) {
-        assistant.searchHint = '联网搜索失败，改为普通回答';
-      }
-      assistant.searching = false;
-      notifyListeners();
-    }
     final List<CitationRange> citations = <CitationRange>[];
-    final Map<int, String> toolNames = <int, String>{};
-    final Map<int, StringBuffer> toolArgs = <int, StringBuffer>{};
     final int thinkingStart = DateTime.now().millisecondsSinceEpoch;
     int thinkingEnd = 0;
     bool finished = false;
@@ -980,27 +931,21 @@ class ChatController extends ChangeNotifier {
         model: _currentModelId,
         temperature: speaker.temperature,
         messages: history,
-        systemPrompt: _systemPromptFor(session, speaker) +
-            (webContext.isEmpty ? '' : '\n\n$webContext'),
+        systemPrompt: _systemPromptFor(session, speaker),
         enableThinking: _enableThinking,
         reasoningEffort: 'high',
 
         enableFiles: _settings.featureFiles,
-        enableImageTool: _settings.featureImage &&
-            _currentProviderId == 'deepseek',
-        enableWebSearch: _enableWebSearch &&
-            _settings.webSearchProvider != webSearchProviderBaizhi,
+        enableWebSearch: _enableWebSearch,
         enableSafety: _settings.featureSafety,
         enableTitle: titleEnabled,
         // 阅读链接：让服务端抓取用户消息里的 URL（与联网搜索独立，是否读由模型判断）。
         enableReadUrl: _settings.featureReadUrl,
         // 用户元信息：日期/语言/所在地（latest_reminder 仅 DeepSeek 支持）。
-        reminder: _currentProviderId == 'deepseek'
-            ? ChatReminder(
-                location: _settings.userLocation,
-                language: _settings.language,
-              )
-            : null,
+        reminder: ChatReminder(
+          location: _settings.userLocation,
+          language: _settings.language,
+        ),
       ),
     );
 
@@ -1016,26 +961,7 @@ class ChatController extends ChangeNotifier {
         }
         if (event.done) {
           complete(stopped: false);
-          if (toolNames.containsValue('generate_image')) {
-            final int key = toolNames.entries
-                .firstWhere((MapEntry<int, String> e) => e.value == 'generate_image')
-                .key;
-            final StringBuffer? args = toolArgs[key];
-            if (args != null) {
-              unawaited(_runImageTool(assistant, args.toString()));
-            }
-          }
           return;
-        }
-        if (event.toolCallIndex >= 0) {
-          if (event.toolCallName.isNotEmpty) {
-            toolNames[event.toolCallIndex] = event.toolCallName;
-          }
-          if (event.toolCallArgs.isNotEmpty) {
-            toolArgs
-                .putIfAbsent(event.toolCallIndex, () => StringBuffer())
-                .write(event.toolCallArgs);
-          }
         }
         if (event.searchHint.isNotEmpty) {
           assistant.searchHint = event.searchHint;
@@ -1300,18 +1226,13 @@ class ChatController extends ChangeNotifier {
     super.dispose();
   }
 
-  /// 上传附件：仅 DeepSeek 支持 Files API；成功后进入待发送列表。
+  /// 上传附件：Files API；成功后进入待发送列表。
   Future<bool> uploadPendingAttachment({
     required String fileName,
     required Uint8List bytes,
   }) async {
     if (!_settings.featureFiles) {
       _noticeText = '文件与图片解析已在设置 > 工具中关闭';
-      notifyListeners();
-      return false;
-    }
-    if (_currentProviderId != 'deepseek') {
-      _noticeText = '文件解析仅支持 DeepSeek 服务商';
       notifyListeners();
       return false;
     }
@@ -1349,113 +1270,6 @@ class ChatController extends ChangeNotifier {
   void removePendingAttachment(String fileId) {
     _pendingAttachments.removeWhere((MessageAttachment a) => a.fileId == fileId);
     notifyListeners();
-  }
-
-  /// 执行生图工具：建任务 → 轮询 → 结果挂到消息（URL 有时效）。
-  Future<void> _runImageTool(ChatMessage assistant, String argsJson) async {
-    String prompt = '';
-    String ratio = 'auto';
-    int count = 1;
-    try {
-      final Object? decoded = jsonDecode(argsJson);
-      if (decoded is Map) {
-        final Object? p = decoded['prompt'];
-        if (p is String) {
-          prompt = p;
-        }
-        final Object? r = decoded['ratio'];
-        if (r is String) {
-          ratio = r;
-        }
-        final Object? c = decoded['count'];
-        if (c is num) {
-          count = c.toInt().clamp(1, 4);
-        }
-      }
-    } catch (_) {
-      // 参数不是合法 JSON 时按空提示词处理，下面会直接失败提示。
-    }
-    if (prompt.trim().isEmpty) {
-      assistant
-        ..imageState = 'failed'
-        ..imageHint = '生图参数缺少提示词';
-      notifyListeners();
-      return;
-    }
-    assistant
-      ..imagePrompt = prompt
-      ..imageAspect = _aspectOfRatio(ratio)
-      ..imageState = 'generating'
-      ..imageHint = '正在生成图片…';
-    notifyListeners();
-    try {
-      final String key = await _settings.readBaizhiImageKey();
-      // Same contract as HarmonyOS: the tool is always declared, a missing key
-      // is reported here instead of silently hiding the tool.
-      if (key.trim().isEmpty) {
-        throw const ImageGenException('未配置百智云「生图」Key（设置 > 工具）');
-      }
-      final String taskId = await ImageGenService.createTask(
-        prompt: prompt,
-        ratio: ratio,
-        resolution: '2K',
-        count: count,
-        apiKey: key,
-      );
-      final DateTime deadline = DateTime.now().add(
-        const Duration(milliseconds: ImageGenService.taskTimeoutMs),
-      );
-      List<String> urls = const <String>[];
-      while (DateTime.now().isBefore(deadline)) {
-        await Future<void>.delayed(
-          const Duration(milliseconds: ImageGenService.pollIntervalMs),
-        );
-        final ImageTaskStatus status =
-            await ImageGenService.queryTask(taskId, key);
-        if (status.imageUrls.isNotEmpty) {
-          urls = status.imageUrls;
-          break;
-        }
-        if (status.isFailed) {
-          throw ImageGenException(
-            status.message.isEmpty ? '生图任务失败' : status.message,
-          );
-        }
-      }
-      if (urls.isEmpty) {
-        throw const ImageGenException('生图超时（约 6 分钟），请稍后重试');
-      }
-      assistant
-        ..imageUrls = urls.take(4).toList(growable: false)
-        ..imageState = 'done'
-        ..imageHint = null
-        ..imageMeta = '百智云 | $ratio | 2K';
-    } on ImageGenException catch (error) {
-      assistant
-        ..imageState = 'failed'
-        ..imageHint = error.message;
-    } catch (error) {
-      assistant
-        ..imageState = 'failed'
-        ..imageHint = '生图失败：$error';
-    }
-    unawaited(_saveState());
-    notifyListeners();
-  }
-
-  static double _aspectOfRatio(String ratio) {
-    switch (ratio) {
-      case '4:3':
-        return 4 / 3;
-      case '3:4':
-        return 3 / 4;
-      case '16:9':
-        return 16 / 9;
-      case '9:16':
-        return 9 / 16;
-      default:
-        return 1;
-    }
   }
 }
 

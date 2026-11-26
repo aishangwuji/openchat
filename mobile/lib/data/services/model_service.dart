@@ -99,24 +99,10 @@ class ModelService {
   }
 
   static List<ModelInfo> _fallbackModels(String providerId) {
-    if (providerId == 'mimo') {
-      return _toModelInfos(mimoThinkingModels);
-    }
     if (providerId == 'deepseek') {
       // 官方已于 2026-07-24 下线 deepseek-chat / deepseek-reasoner（见 V4 预览版公告），
       // 现行模型为 deepseek-flash 与 deepseek-v4-pro；对话扩展能力优先使用 flash。
       return _toModelInfos(<String>[deepSeekFlashModel, 'deepseek-v4-pro']);
-    }
-    if (providerId == 'kimi') {
-      return _toModelInfos(<String>[
-        'kimi-k3',
-        'kimi-k2.7-code',
-        'kimi-k2.7-code-highspeed',
-        'kimi-k2.6',
-        'moonshot-v1-8k',
-        'moonshot-v1-32k',
-        'moonshot-v1-128k',
-      ]);
     }
     return <ModelInfo>[];
   }

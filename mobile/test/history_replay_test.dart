@@ -65,23 +65,10 @@ void main() {
 
   test('buildApiMessages 不回传 DeepSeek 的 reasoning_content，空的思考回合被丢弃', () {
     final List<Map<String, dynamic>> wire =
-        ChatService.buildApiMessages(sampleHistory(), null, false, replayReasoning: false);
+        ChatService.buildApiMessages(sampleHistory(), null, false);
 
     expect(wire.length, 1);
     expect(wire.single['role'], 'user');
     expect(wire.single.containsKey('reasoning_content'), isFalse);
-  });
-
-  test('Kimi / MiMo 仍然回传 reasoning_content', () {
-    final List<Map<String, dynamic>> wire = ChatService.buildApiMessages(
-      sampleHistory(),
-      null,
-      false,
-      replayReasoning: true,
-    );
-
-    expect(wire.length, 2);
-    expect(wire.last['role'], 'assistant');
-    expect(wire.last['reasoning_content'], '先联网检索，再总结');
   });
 }

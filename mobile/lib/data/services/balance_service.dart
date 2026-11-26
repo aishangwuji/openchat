@@ -79,40 +79,16 @@ String _buildUrl(String baseUrl, String endpoint) {
   return '$base$endpoint';
 }
 
-/// Boundary normalization: strips a pasted `Cookie:` prefix and line breaks.
-///
-/// Reason: users often copy the whole DevTools line "Cookie: a=b; c=d"; that
-/// value would otherwise be sent verbatim as the header value.
-String normalizeCredential(String raw, CredentialKind kind) {
-  if (kind != CredentialKind.cookie) {
-    return raw.trim();
-  }
-  final String flat = raw.replaceAll(RegExp(r'[\r\n]+'), ' ').trim();
-  if (flat.toLowerCase().startsWith('cookie:')) {
-    return flat.substring(7).trim();
-  }
-  return flat;
-}
-
-Map<String, String> _bearerHeaders(String apiKey, bool bearerPrefix) {
+Map<String, String> _bearerHeaders(String apiKey) {
   return <String, String>{
-    'Authorization': bearerPrefix ? 'Bearer $apiKey' : apiKey,
+    'Authorization': 'Bearer $apiKey',
     'Accept': 'application/json',
     'Content-Type': 'application/json',
   };
 }
 
-Map<String, String> _cookieHeaders(String cookie, String userAgent) {
-  // Reason: Baizhi Cloud's WAF pairs the cookie with the browser UA.
-  return <String, String>{
-    'Cookie': cookie,
-    'User-Agent': userAgent,
-    'Accept': '*/*',
-  };
-}
-
 /// Single GET channel: network / auth / non-2xx failures are collapsed into
-/// the same error channels for both engines.
+/// the same error channels.
 Future<String> _getText(
   ProviderDefinition def,
   Uri uri,
@@ -146,31 +122,14 @@ Future<String> _getText(
 Future<BalanceInfo> _queryBearer(ProviderDefinition def, String apiKey) async {
   final BalanceQueryConfig config = def.balanceConfig;
   final Uri uri = Uri.parse(_buildUrl(def.baseUrl, config.endpoint));
-  final bool bearer = config.useBearerPrefix ?? true;
-  final String body = await _getText(def, uri, _bearerHeaders(apiKey, bearer));
+  final String body = await _getText(def, uri, _bearerHeaders(apiKey));
   return parseBalanceBody(def, body);
 }
-
-/// Cookie engine: `Cookie` header + browser UA + the shared parser.
-Future<BalanceInfo> _queryCookieSession(
-  ProviderDefinition def,
-  String cookie,
-) async {
-  final BalanceQueryConfig config = def.balanceConfig;
-  final Uri uri = Uri.parse(_buildUrl(def.baseUrl, config.endpoint));
-  final String userAgent = config.userAgent ?? _defaultUserAgent;
-  final String body = await _getText(def, uri, _cookieHeaders(cookie, userAgent));
-  return parseBalanceBody(def, body);
-}
-
-const String _defaultUserAgent =
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:160.0) '
-    'Gecko/20100101 Firefox/160.0';
 
 /// Pure response parser extracted for unit tests.
 ///
 /// Boundary contract: HTTP status is already validated; this function owns
-/// JSON shape validation, business-code checks and value derivation.
+/// JSON shape validation and value derivation.
 @visibleForTesting
 BalanceInfo parseBalanceBody(ProviderDefinition def, String body) {
   final BalanceQueryConfig config = def.balanceConfig;
@@ -182,24 +141,6 @@ BalanceInfo parseBalanceBody(ProviderDefinition def, String body) {
   }
   if (root is! Map) {
     throw const DeterministicException('Failed to parse response');
-  }
-
-  final String? successField = config.successCodeField;
-  final int? successValue = config.successCodeValue;
-  if (successField != null && successValue != null) {
-    final Object? code = root[successField];
-    final bool ok = (code is num && code.toInt() == successValue) ||
-        (code is String && code == successValue.toString());
-    if (!ok) {
-      // Reason: cookie failures are almost always expired sessions, so give an
-      // actionable hint instead of a raw JSON slice.
-      if (def.balanceType == BalanceQueryType.cookieSession) {
-        throw const DeterministicException('登录态失效（Cookie 无效或已过期），请重新从浏览器复制');
-      }
-      throw DeterministicException(
-        'API error (business code): ${_truncate(body)}',
-      );
-    }
   }
 
   final Object? target = _navigatePath(root, config.responsePath);
@@ -241,33 +182,11 @@ BalanceInfo parseBalanceBody(ProviderDefinition def, String body) {
     total = available;
   }
 
-  final double multiplier = config.amountMultiplier ?? 1;
-  available *= multiplier;
-  total *= multiplier;
-  used *= multiplier;
-
   if (config.usedField == null && total > 0 && used == 0 && total > available) {
     used = total - available;
   }
   if (config.availableField == null && total > 0 && available == 0 && used > 0) {
     available = total - used;
-  }
-
-  // Credit breakdown (Baizhi Cloud wallet): same multiplier as the main balance.
-  CreditDetail? credit;
-  final String? temporaryField = config.temporaryCreditField;
-  if (temporaryField != null && target is Map) {
-    final Object? claimed = config.dailyClaimedField == null
-        ? null
-        : _fieldOf(target, config.dailyClaimedField);
-    credit = CreditDetail(
-      temporary: _toNumber(_fieldOf(target, temporaryField)) * multiplier,
-      permanent: _toNumber(_fieldOf(target, config.permanentCreditField)) *
-          multiplier,
-      frozen: _toNumber(_fieldOf(target, config.frozenCreditField)) *
-          multiplier,
-      dailyClaimed: claimed == true,
-    );
   }
 
   final double finalTotal = total > 0 ? total : available + used;
@@ -278,7 +197,6 @@ BalanceInfo parseBalanceBody(ProviderDefinition def, String body) {
     available: available,
     currency: currency,
     updatedAt: _nowLabel(),
-    credit: credit,
   );
 }
 
@@ -293,9 +211,6 @@ String _nowLabel() {
 }
 
 /// Public entry: validates inputs at the boundary before touching the network.
-///
-/// [credential] is an API key for Bearer providers and a browser cookie for
-/// cookie-session providers (Baizhi Cloud).
 Future<ProviderBalanceResult> fetchProviderBalance(
   String providerId,
   String credential,
@@ -307,28 +222,15 @@ Future<ProviderBalanceResult> fetchProviderBalance(
       error: 'Unknown provider',
     );
   }
-  final String cred = normalizeCredential(credential, def.credentialKind);
+  final String cred = credential.trim();
   if (cred.isEmpty) {
-    return ProviderBalanceResult(
+    return const ProviderBalanceResult(
       success: false,
-      error: def.credentialKind == CredentialKind.cookie
-          ? 'Cookie 为空，请从浏览器复制完整 Cookie'
-          : 'API key is empty',
+      error: 'API key is empty',
     );
   }
-  if (def.credentialKind == CredentialKind.cookie) {
-    final String? fragment = def.credentialRequiredFragment;
-    if (fragment != null && !cred.contains(fragment)) {
-      return ProviderBalanceResult(
-        success: false,
-        error: 'Cookie 缺少 $fragment，请确认复制的是登录后的完整 Cookie',
-      );
-    }
-  }
   try {
-    final BalanceInfo info = def.balanceType == BalanceQueryType.cookieSession
-        ? await _queryCookieSession(def, cred)
-        : await _queryBearer(def, cred);
+    final BalanceInfo info = await _queryBearer(def, cred);
     return ProviderBalanceResult(success: true, info: info);
   } on AuthFailedException catch (error) {
     return ProviderBalanceResult(success: false, error: error.toString());

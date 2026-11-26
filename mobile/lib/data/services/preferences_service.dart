@@ -25,10 +25,8 @@ class PreferencesService {
   static const String keyFeatureFiles = 'feature_files';
   static const String keyFeatureAsr = 'feature_asr';
   static const String keyFeatureTts = 'feature_tts';
-  static const String keyFeatureImage = 'feature_image';
   static const String keyFeatureSafety = 'feature_safety';
   static const String keyFeatureReadUrl = 'feature_read_url';
-  static const String keyWebSearchProvider = 'web_search_provider';
   static const String keyTtsVoice = 'tts_voice';
   /// 用户所在地（注入 latest_reminder，可留空）。
   static const String keyUserLocation = 'user_location';

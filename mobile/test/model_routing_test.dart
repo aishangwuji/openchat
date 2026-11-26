@@ -53,18 +53,4 @@ void main() {
       isFalse,
     );
   });
-
-  test('其他服务商不受 DeepSeek 能力约束', () {
-    expect(
-      requiresDeepSeekFlash(
-        providerId: 'kimi',
-        webSearch: true,
-        files: true,
-        readUrl: true,
-        safety: true,
-        title: true,
-      ),
-      isFalse,
-    );
-  });
 }

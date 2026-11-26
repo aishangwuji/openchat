@@ -14,11 +14,6 @@ class KeyStore {
 
   static String providerKey(String providerId) => 'key_$providerId';
 
-  /// 百智云 Key：搜索与生图分开授权，互不复用。
-  static const String baizhiWeb = 'key_baizhi_web';
-  static const String baizhiImage = 'key_baizhi_image';
-
-
   Future<String> read(String key) async {
     try {
       return await _storage.read(key: key) ?? '';

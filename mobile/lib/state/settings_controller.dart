@@ -5,10 +5,6 @@ import '../data/services/key_store.dart';
 import '../core/theme/app_skins.dart';
 import '../data/services/preferences_service.dart';
 
-/// 联网搜索来源：'deepseek'（服务端内置工具）| 'baizhi'（百智云 OpenAPI）。
-const String webSearchProviderDeepseek = 'deepseek';
-const String webSearchProviderBaizhi = 'baizhi';
-
 /// 应用锁解锁方式：`any` 允许指纹/面容/密码兜底；`biometric` 仅指纹/面容。
 /// Business Rule: 移动端系统弹窗不暴露「只许面容」「只许指纹」，因此只分两档；
 ///   具体用哪种生物识别仍由系统决定。
@@ -49,10 +45,8 @@ class SettingsController extends ChangeNotifier {
   bool _featureFiles = true;
   bool _featureAsr = true;
   bool _featureTts = true;
-  bool _featureImage = true;
   bool _featureSafety = false;
   bool _featureReadUrl = true;
-  String _webSearchProvider = webSearchProviderDeepseek;
   String _ttsVoice = 'stella';
   /// 用户所在地：随 latest_reminder 告诉模型，可留空。
   String _userLocation = '';
@@ -72,10 +66,8 @@ class SettingsController extends ChangeNotifier {
   bool get featureFiles => _featureFiles;
   bool get featureAsr => _featureAsr;
   bool get featureTts => _featureTts;
-  bool get featureImage => _featureImage;
   bool get featureSafety => _featureSafety;
   bool get featureReadUrl => _featureReadUrl;
-  String get webSearchProvider => _webSearchProvider;
   String get ttsVoice => _ttsVoice;
   String get userLocation => _userLocation;
 
@@ -127,15 +119,8 @@ class SettingsController extends ChangeNotifier {
     c._featureFiles = prefs.getBool(PreferencesService.keyFeatureFiles, fallback: true);
     c._featureAsr = prefs.getBool(PreferencesService.keyFeatureAsr, fallback: true);
     c._featureTts = prefs.getBool(PreferencesService.keyFeatureTts, fallback: true);
-    c._featureImage = prefs.getBool(PreferencesService.keyFeatureImage, fallback: true);
     c._featureSafety = prefs.getBool(PreferencesService.keyFeatureSafety, fallback: false);
     c._featureReadUrl = prefs.getBool(PreferencesService.keyFeatureReadUrl, fallback: true);
-    c._webSearchProvider =
-        prefs.getString(PreferencesService.keyWebSearchProvider,
-            fallback: webSearchProviderDeepseek) ==
-                webSearchProviderBaizhi
-            ? webSearchProviderBaizhi
-            : webSearchProviderDeepseek;
     c._userLocation = prefs.getString(PreferencesService.keyUserLocation);
     return c;
   }
@@ -239,9 +224,6 @@ class SettingsController extends ChangeNotifier {
       case PreferencesService.keyFeatureTts:
         _featureTts = value;
         break;
-      case PreferencesService.keyFeatureImage:
-        _featureImage = value;
-        break;
       case PreferencesService.keyFeatureSafety:
         _featureSafety = value;
         break;
@@ -254,27 +236,6 @@ class SettingsController extends ChangeNotifier {
     notifyListeners();
     await _prefs.setBool(prefKey, value);
   }
-
-  Future<void> setWebSearchProvider(String provider) async {
-    _webSearchProvider = provider == webSearchProviderBaizhi
-        ? webSearchProviderBaizhi
-        : webSearchProviderDeepseek;
-    notifyListeners();
-    await _prefs.setString(
-      PreferencesService.keyWebSearchProvider,
-      _webSearchProvider,
-    );
-  }
-
-  Future<String> readBaizhiWebKey() => _keyStore.read(KeyStore.baizhiWeb);
-
-  Future<void> writeBaizhiWebKey(String key) =>
-      _keyStore.write(KeyStore.baizhiWeb, key);
-
-  Future<String> readBaizhiImageKey() => _keyStore.read(KeyStore.baizhiImage);
-
-  Future<void> writeBaizhiImageKey(String key) =>
-      _keyStore.write(KeyStore.baizhiImage, key);
 
   Future<void> setTtsVoice(String voice) async {
     _ttsVoice = voice == 'tide' ? 'tide' : 'stella';

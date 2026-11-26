@@ -170,7 +170,9 @@ class ChatStorageService {
       id: id,
       title: raw['title'] is String ? raw['title'] as String : '对话',
       characterId: raw['characterId'] is String ? raw['characterId'] as String : '',
-      providerId: raw['providerId'] is String ? raw['providerId'] as String : 'deepseek',
+      // 旧版本会话可能记录 kimi/mimo/openrouter 等服务商；现在只剩 DeepSeek，
+      // 一律归一到 deepseek，否则打开旧会话会拼出已不存在的厂商端点。
+      providerId: 'deepseek',
       modelId: raw['modelId'] is String ? raw['modelId'] as String : '',
       updatedAt: raw['updatedAt'] is num
           ? (raw['updatedAt'] as num).toInt()

@@ -42,10 +42,6 @@ class ChatStreamEvent {
     this.truncated = false,
     this.error = '',
     this.serverToolCallsJson = '',
-    this.toolCallIndex = -1,
-    this.toolCallId = '',
-    this.toolCallName = '',
-    this.toolCallArgs = '',
   });
 
   final String content;
@@ -67,11 +63,6 @@ class ChatStreamEvent {
   final String error;
   /// 末块 `delta.server_tool_calls` 的原文（含阅读链接的 signature，多轮必须原样回传）。
   final String serverToolCallsJson;
-  /// 客户端工具调用分片：index 相同的分片需要累加。
-  final int toolCallIndex;
-  final String toolCallId;
-  final String toolCallName;
-  final String toolCallArgs;
 
   /// 本块是否有需要交给上层的载荷。
   ///
@@ -88,8 +79,7 @@ class ChatStreamEvent {
       refusal.isNotEmpty ||
       truncated ||
       error.isNotEmpty ||
-      serverToolCallsJson.isNotEmpty ||
-      toolCallIndex >= 0;
+      serverToolCallsJson.isNotEmpty;
 }
 
 class ChatRequestOptions {
@@ -104,7 +94,6 @@ class ChatRequestOptions {
     this.reasoningEffort = 'high',
     this.enableWebSearch = false,
     this.enableFiles = false,
-    this.enableImageTool = false,
     this.enableSafety = false,
     this.enableTitle = false,
     this.enableReadUrl = false,
@@ -123,8 +112,6 @@ class ChatRequestOptions {
   final bool enableWebSearch;
   /// 文件/图片附件：仅 DeepSeek 回放 file 块。
   final bool enableFiles;
-  /// 生图工具：声明客户端函数 generate_image（百智云异步任务）。
-  final bool enableImageTool;
   /// 内容安全：声明 safety_check.level=high（仅 DeepSeek）。
   final bool enableSafety;
   /// 会话标题：声明 title.enabled（仅 DeepSeek）；只在会话首次请求开启。
@@ -236,7 +223,7 @@ class ChatService {
           'api-key': options.apiKey.trim(),
           'Accept': 'text/event-stream',
         })
-        ..body = jsonEncode(_buildPayload(options, def, true));
+        ..body = jsonEncode(_buildPayload(options, true));
 
       final http.StreamedResponse response =
           await client.send(request).timeout(_connectTimeout);
@@ -360,35 +347,6 @@ class ChatService {
       if (deltaRefusal is String && deltaRefusal.isNotEmpty) {
         refusal = deltaRefusal;
       }
-      int callIndex = -1;
-      String callId = '';
-      String callName = '';
-      String callArgs = '';
-      final Object? toolCalls = delta['tool_calls'];
-      if (toolCalls is List && toolCalls.isNotEmpty) {
-        final Object? first = toolCalls.first;
-        if (first is Map) {
-          final Object? indexRaw = first['index'];
-          if (indexRaw is num) {
-            callIndex = indexRaw.toInt();
-          }
-          final Object? idRaw = first['id'];
-          if (idRaw is String) {
-            callId = idRaw;
-          }
-          final Object? fn = first['function'];
-          if (fn is Map) {
-            final Object? nameRaw = fn['name'];
-            if (nameRaw is String) {
-              callName = nameRaw;
-            }
-            final Object? argsRaw = fn['arguments'];
-            if (argsRaw is String) {
-              callArgs = argsRaw;
-            }
-          }
-        }
-      }
       return ChatStreamEvent(
         content: content is String ? content : '',
         reasoning: reasoning is String ? reasoning : '',
@@ -400,10 +358,6 @@ class ChatService {
         truncated: truncated,
         error: error,
         serverToolCallsJson: toolCallsJson,
-        toolCallIndex: callIndex,
-        toolCallId: callId,
-        toolCallName: callName,
-        toolCallArgs: callArgs,
       );
     } catch (_) {
       // Ignore keep-alive or malformed single lines.
@@ -420,14 +374,13 @@ class ChatService {
   /// [reminder] 非空时，每条 user 消息前插一条 `latest_reminder`
   /// （`<date>,<weekday>,<location>,App,<language>`），让模型知道当前日期与所在地。
   ///
-  /// [replayReasoning] 为 false 时不回传 `reasoning_content`（DeepSeek）：
-  /// 上一轮的思考被带进新一轮会让模型顺着旧计划作答，且空的思考回合必须整体丢弃。
+  /// DeepSeek 不回传上一轮的 `reasoning_content`：把旧思考带进新问题会让模型
+  /// 顺着旧计划作答，空的思考回合也必须整体丢弃。
   static List<Map<String, dynamic>> buildApiMessages(
     List<ChatMessage> messages,
     String? systemPrompt,
     bool enableFiles, {
     ChatReminder? reminder,
-    bool replayReasoning = true,
   }) {
     final List<Map<String, dynamic>> out = <Map<String, dynamic>>[];
     if (systemPrompt != null && systemPrompt.trim().isNotEmpty) {
@@ -444,8 +397,6 @@ class ChatService {
         continue;
       }
       final String replay = message.content;
-      final String reasoning =
-          replayReasoning ? (message.reasoningContent ?? '') : '';
       final bool hasAtts =
           message.isUser && enableFiles && message.attachments.isNotEmpty;
       // 服务端工具调用（阅读链接的 signature）必须随历史原样回传，否则模型读不到旧网页。
@@ -454,7 +405,7 @@ class ChatService {
           : null;
       final bool hasToolCalls = serverToolCalls != null;
       // 纯附件消息（只发文件不打字）也要保留，否则追问会丢文档。
-      if (replay.isEmpty && reasoning.isEmpty && !hasAtts && !hasToolCalls) {
+      if (replay.isEmpty && !hasAtts && !hasToolCalls) {
         continue;
       }
       final Map<String, dynamic> item = <String, dynamic>{
@@ -474,10 +425,6 @@ class ChatService {
         item['content'] = parts;
       } else {
         item['content'] = replay;
-      }
-      if (message.isAssistant && reasoning.isNotEmpty) {
-        item['reasoning_content'] = reasoning;
-        chars += reasoning.length;
       }
       if (serverToolCalls != null) {
         item['server_tool_calls'] = serverToolCalls;
@@ -537,7 +484,6 @@ class ChatService {
   }
   static Map<String, dynamic> _buildPayload(
     ChatRequestOptions options,
-    ProviderDefinition def,
     bool isStream,
   ) {
     final Map<String, dynamic> payload = <String, dynamic>{
@@ -545,76 +491,39 @@ class ChatService {
       'messages': buildApiMessages(
         options.messages,
         options.systemPrompt,
-        options.enableFiles && options.providerId == 'deepseek',
+        options.enableFiles,
         reminder: options.reminder,
-        replayReasoning: options.providerId == 'kimi' ||
-            options.providerId == 'mimo',
       ),
       'stream': isStream,
     };
-    // 联网搜索：仅 DeepSeek 声明服务端工具（搜索/抓取由服务端完成）；
-    // 生图工具与它能同时声明，二者互不影响。
+    // 联网搜索：声明服务端工具（搜索/抓取由服务端完成）。
     final List<Map<String, dynamic>> tools = <Map<String, dynamic>>[];
-    if (options.enableWebSearch && options.providerId == 'deepseek') {
+    if (options.enableWebSearch) {
       tools.add(<String, dynamic>{'type': 'deepseek_web_search'});
     }
     // 阅读链接：与联网搜索可同时声明，但服务端规则是「开思考 + 声明搜索」走深度思考搜索、
     // 不单独读链接；只有关思考或未声明搜索时才会读用户消息里的 URL。
-    if (options.enableReadUrl && options.providerId == 'deepseek') {
+    if (options.enableReadUrl) {
       tools.add(<String, dynamic>{'type': 'deepseek_read_url'});
-    }
-    if (options.enableImageTool && options.providerId == 'deepseek') {
-      tools.add(_imageToolDeclaration());
     }
     if (tools.isNotEmpty) {
       payload['tools'] = tools;
     }
     // 内容安全：官方基础风控，输入输出都审核；拒答走 finish_reason/refusal。
-    if (options.enableSafety && options.providerId == 'deepseek') {
+    if (options.enableSafety) {
       payload['safety_check'] = <String, String>{'level': 'high'};
     }
     // 会话标题：DeepSeek 扩展字段，与 tools 并列；服务端在最后一个 chunk 的
     // delta.title 下发，回答结束后最多多等 5 秒，标题不计费。
-    if (options.enableTitle && options.providerId == 'deepseek') {
+    if (options.enableTitle) {
       payload['title'] = <String, bool>{'enabled': true};
     }
 
-    final bool thinkingOn =
-        options.enableThinking && def.supportsThinking;
-    final String model = options.model.toLowerCase();
-
-    if (options.providerId == 'kimi') {
-      if (model.startsWith('kimi-k3')) {
-        payload['reasoning_effort'] = options.reasoningEffort;
-      } else if (model.contains('kimi-k2.7')) {
-        // Always-thinking model: no thinking flag and no temperature.
-      } else if (model.startsWith('kimi-k2.6')) {
-        payload['thinking'] = <String, String>{
-          'type': thinkingOn ? 'enabled' : 'disabled',
-        };
-      } else {
-        payload['temperature'] = options.temperature ?? 0.7;
-      }
-      return payload;
-    }
-
-    if (options.providerId == 'mimo') {
-      payload['thinking'] = <String, String>{
-        'type': thinkingOn ? 'enabled' : 'disabled',
-      };
-      if (!thinkingOn) {
-        payload['temperature'] = options.temperature ?? 0.7;
-      }
-      return payload;
-    }
-
-    if (thinkingOn) {
+    if (options.enableThinking) {
       payload['thinking'] = <String, String>{'type': 'enabled'};
       payload['reasoning_effort'] = options.reasoningEffort;
     } else {
-      if (def.supportsThinking) {
-        payload['thinking'] = <String, String>{'type': 'disabled'};
-      }
+      payload['thinking'] = <String, String>{'type': 'disabled'};
       payload['temperature'] = options.temperature ?? 0.7;
     }
     return payload;
@@ -658,7 +567,7 @@ class ChatService {
     }
     final String kind = call['kind'] is String ? call['kind'] as String : '';
     final String callType = call['type'] is String ? call['type'] as String : '';
-    // 只关心联网能力；明确是别的工具（如生图）才丢弃，kind 缺失一律放行。
+    // 只关心联网能力；明确是其它服务端工具才丢弃，kind 缺失一律放行。
     if (kind.isNotEmpty && !_webToolKinds.contains(kind)) {
       return const _ToolEvent();
     }
@@ -805,37 +714,5 @@ class ChatService {
       );
     }
     return out;
-  }
-
-  /// 生图函数工具声明：模型自行判断何时画图，参数只暴露 prompt/ratio/count。
-  static Map<String, dynamic> _imageToolDeclaration() {
-    return <String, dynamic>{
-      'type': 'function',
-      'function': <String, dynamic>{
-        'name': 'generate_image',
-        'description': '根据用户的描述生成图片。当用户明确要求画图、生成图片、插画、海报时调用。',
-        'parameters': <String, dynamic>{
-          'type': 'object',
-          'properties': <String, dynamic>{
-            'prompt': <String, dynamic>{
-              'type': 'string',
-              'description': '用于生图的详细中文提示词，包含主体、风格、构图与光线。',
-            },
-            'ratio': <String, dynamic>{
-              'type': 'string',
-              'enum': <String>['1:1', '4:3', '3:4', '16:9', '9:16', 'auto'],
-              'description': '图片比例，不确定时用 auto。',
-            },
-            'count': <String, dynamic>{
-              'type': 'integer',
-              'minimum': 1,
-              'maximum': 4,
-              'description': '生成张数，默认 1。',
-            },
-          },
-          'required': <String>['prompt'],
-        },
-      },
-    };
   }
 }

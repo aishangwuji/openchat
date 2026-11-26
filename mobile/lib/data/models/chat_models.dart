@@ -290,17 +290,11 @@ class ChatMessage {
     List<String>? mentionedIds,
     List<SearchSource>? sources,
     List<MessageAttachment>? attachments,
-    this.imageState,
-    List<String>? imageUrls,
-    this.imageMeta,
-    this.imageAspect,
-    this.imagePrompt,
     this.serverToolCallsJson = '',
   })  : childIds = childIds ?? <String>[],
         mentionedIds = mentionedIds ?? <String>[],
         sources = sources ?? <SearchSource>[],
-        attachments = attachments ?? <MessageAttachment>[],
-        imageUrls = imageUrls ?? <String>[];
+        attachments = attachments ?? <MessageAttachment>[];
 
   final String id;
   final MessageRole role;
@@ -319,17 +313,10 @@ class ChatMessage {
   List<SearchSource> sources;
   /// 文档/图片附件（已上传 file_id，仅 DeepSeek 回放）。
   List<MessageAttachment> attachments;
-  /// 生图结果（百智云，URL 有时效）。
-  String? imageState;
-  List<String> imageUrls;
-  String? imageMeta;
-  double? imageAspect;
-  String? imagePrompt;
   /// 服务端工具调用的原文（Chat Completions 的 `delta.server_tool_calls`）。
   /// Business Rule: 阅读链接的网页正文加密在 `signature` 里，多轮必须原样回传整段，
   /// 故这里存原始 JSON 字符串而不是重新拼结构；为空表示本轮没有服务端工具调用。
   String serverToolCallsJson;
-  String? imageHint;
   String? searchHint;
   bool searching = false;
   /// 回答是否被长度上限截断（finish_reason=length）；实时字段，不落盘。
@@ -399,11 +386,6 @@ class ChatMessage {
         'activeChildId': activeChildId,
         'speakerId': speakerId,
         'mentionedIds': mentionedIds,
-        if (imageState != null) 'imageState': imageState,
-        if (imageUrls.isNotEmpty) 'imageUrls': imageUrls,
-        if (imageMeta != null) 'imageMeta': imageMeta,
-        if (imageAspect != null) 'imageAspect': imageAspect,
-        if (imagePrompt != null) 'imagePrompt': imagePrompt,
         if (attachments.isNotEmpty)
           'attachments': attachments.map((MessageAttachment a) => a.toJson()).toList(),
         if (sources.isNotEmpty)
@@ -460,11 +442,6 @@ class ChatMessage {
       mentionedIds: mentioned,
       sources: _parseSources(raw['sources']),
       attachments: _parseAttachments(raw['attachments']),
-      imageState: raw['imageState'] is String ? raw['imageState'] as String : null,
-      imageUrls: _parseImageUrls(raw['imageUrls']),
-      imageMeta: raw['imageMeta'] is String ? raw['imageMeta'] as String : null,
-      imageAspect: raw['imageAspect'] is num ? (raw['imageAspect'] as num).toDouble() : null,
-      imagePrompt: raw['imagePrompt'] is String ? raw['imagePrompt'] as String : null,
       serverToolCallsJson: _validatedServerToolCalls(raw['serverToolCalls']),
     );
   }
@@ -664,16 +641,3 @@ List<MessageAttachment> _parseAttachments(Object? raw) {
   return out;
 }
 
-List<String> _parseImageUrls(Object? raw) {
-  if (raw is! List) {
-    return <String>[];
-  }
-  final List<String> out = <String>[];
-  for (final Object? item in raw) {
-    if (item is String &&
-        (item.startsWith('http://') || item.startsWith('https://'))) {
-      out.add(item);
-    }
-  }
-  return out.take(4).toList(growable: false);
-}

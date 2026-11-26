@@ -259,7 +259,6 @@ class _AssistantBubble extends StatelessWidget {
               onTap: () => showSourcePanel(context, message.sources),
             ),
           ),        if (controller.featureTts &&
-            controller.currentProviderId == 'deepseek' &&
             !streaming &&
             message.content.isNotEmpty)
           Padding(
@@ -270,12 +269,11 @@ class _AssistantBubble extends StatelessWidget {
               apiKey: controller.currentApiKey,
               voice: controller.ttsVoice,
             ),
-          ),        if (!streaming &&
+          ),
+        if (!streaming &&
             message.status != MessageStatus.error &&
             message.content.isEmpty &&
             reasoning.isEmpty &&
-            message.imageState == null &&
-            message.imageUrls.isEmpty &&
             message.serverToolCallsJson.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 6, left: 2),
@@ -296,77 +294,7 @@ class _AssistantBubble extends StatelessWidget {
               ),
             ),
           ),
-        if (message.imageState == 'generating')
-          Padding(
-            padding: const EdgeInsets.only(top: 8, left: 2),
-            child: Row(
-              children: <Widget>[
-                const SizedBox(
-                  width: 14,
-                  height: 14,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  message.imageHint ?? '正在生成图片…',
-                  style: TextStyle(fontSize: 12, color: c.textSecondary),
-                ),
-              ],
-            ),
-          ),
-        if (message.imageState == 'failed')
-          Padding(
-            padding: const EdgeInsets.only(top: 8, left: 2),
-            child: Text(
-              '生图失败：${message.imageHint ?? '未知原因'}',
-              style: TextStyle(fontSize: 12, color: c.dangerText),
-            ),
-          ),
-        if (message.imageUrls.isNotEmpty)
-          Padding(
-            padding: const EdgeInsets.only(top: 8, left: 2, right: 2),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                if (message.imageMeta != null && message.imageMeta!.isNotEmpty)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: Text(
-                      message.imageMeta!,
-                      style: TextStyle(fontSize: 11, color: c.textMuted),
-                    ),
-                  ),
-                for (final String url in message.imageUrls)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 8),
-                    child: GestureDetector(
-                      onTap: () => _previewImage(context, url),
-                      child: AspectRatio(
-                        aspectRatio: message.imageAspect ?? 1,
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(16),
-                          child: Image.network(
-                            url,
-                            fit: BoxFit.contain,
-                            errorBuilder: (BuildContext context, Object error,
-                                    StackTrace? stack) =>
-                                Container(
-                              alignment: Alignment.center,
-                              color: c.fill,
-                              child: Text(
-                                '图片已过期或加载失败',
-                                style:
-                                    TextStyle(fontSize: 12, color: c.textMuted),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),        if (streaming && message.content.isEmpty && reasoning.isEmpty)
+        if (streaming && message.content.isEmpty && reasoning.isEmpty)
           Padding(
             padding: const EdgeInsets.only(top: 4, left: 2),
             child: Text(

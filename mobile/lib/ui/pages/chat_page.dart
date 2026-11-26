@@ -719,27 +719,23 @@ class _ChatPageState extends State<ChatPage> {
               children: <Widget>[
                 ThinkingButton(
                   enabled: chat.enableThinking,
-                  providerId: chat.currentProviderId,
-                  modelId: chat.currentModelId,
                   onToggle: chat.setEnableThinking,
                 ),
                 const SizedBox(width: 6),
                 WebSearchButton(
                   enabled: chat.enableWebSearch,
-                  providerId: chat.currentProviderId,
                   onToggle: chat.setEnableWebSearch,
                 ),
                 const Spacer(),
-                if (chat.currentProviderId == 'deepseek')
-                  _composerButton(
-                    icon: Icons.add_rounded,
-                    tooltip: '添加文件或图片',
-                    color: c.textPrimary,
-                    busy: chat.attachmentBusy,
-                    onTap: chat.attachmentBusy
-                        ? null
-                        : () => _pickAttachment(context, chat),
-                  ),
+                _composerButton(
+                  icon: Icons.add_rounded,
+                  tooltip: '添加文件或图片',
+                  color: c.textPrimary,
+                  busy: chat.attachmentBusy,
+                  onTap: chat.attachmentBusy
+                      ? null
+                      : () => _pickAttachment(context, chat),
+                ),
                 if (chat.isGenerating)
                   _composerButton(
                     icon: Icons.stop_rounded,
@@ -764,8 +760,7 @@ class _ChatPageState extends State<ChatPage> {
                       ),
                     ),
                   )
-                else if (chat.featureAsr &&
-                    chat.currentProviderId == 'deepseek')
+                else if (chat.featureAsr)
                   _composerButton(
                     icon: _recording
                         ? Icons.stop_circle_outlined

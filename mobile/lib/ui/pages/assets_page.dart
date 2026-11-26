@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
-import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/app_colors.dart';
 import '../../data/models/provider.dart';
@@ -87,7 +86,6 @@ class _AssetsPageState extends State<AssetsPage> {
                                   : () => assets.refreshOne(record.defId),
                               onLongPress: () =>
                                   _showCardActions(record.defId),
-                              onCheckin: () => _openCheckin(record.defId),
                             ),
                           );
                         }),
@@ -391,36 +389,10 @@ class _AssetsPageState extends State<AssetsPage> {
     return ListView(children: groups);
   }
 
-  /// Opens the provider's manual check-in page.
-  ///
-  /// Business Rule: the check-in endpoint triggers a captcha, so only the user
-  /// in a browser can complete it — the app just jumps out and never signs in
-  /// on the user's behalf.
-  Future<void> _openCheckin(String providerId) async {
-    final ProviderDefinition? def = findProvider(providerId);
-    final String? url = def?.checkinUrl;
-    if (url == null || url.isEmpty) {
-      return;
-    }
-    bool ok = false;
-    try {
-      ok = await launchUrl(Uri.parse(url), mode: LaunchMode.externalApplication);
-    } catch (_) {
-      ok = false;
-    }
-    if (!ok && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('无法打开签到页，请手动在浏览器访问 $url')),
-      );
-    }
-  }
-
   Future<void> _showKeyDialog(String providerId) async {
     final AppColors c = context.colors;
     final AssetsController assets = context.read<AssetsController>();
     final ProviderDefinition? def = findProvider(providerId);
-    final bool isCookie = def?.credentialKind == CredentialKind.cookie;
-    final String noun = isCookie ? 'Cookie' : 'Key';
     final TextEditingController controller =
         TextEditingController(text: assets.apiKeyOf(providerId));
     bool obscure = true;
@@ -435,32 +407,24 @@ class _AssetsPageState extends State<AssetsPage> {
               // Business Rule: reject bad credentials at the boundary, never
               // send them to the network.
               if (text.isEmpty) {
-                setState(() => errorText = isCookie ? '请粘贴 Cookie' : '请粘贴 API Key');
+                setState(() => errorText = '请粘贴 API Key');
                 return;
               }
               if (text.length < 4) {
-                setState(() => errorText = isCookie
-                    ? 'Cookie 太短，请复制完整内容'
-                    : 'API Key 至少需要 4 个字符');
-                return;
-              }
-              final String? fragment = def?.credentialRequiredFragment;
-              if (fragment != null && !text.contains(fragment)) {
-                setState(() => errorText =
-                    'Cookie 需包含 $fragment，请从浏览器开发者工具复制完整 Cookie');
+                setState(() => errorText = 'API Key 至少需要 4 个字符');
                 return;
               }
               Navigator.of(context).pop(true);
             }
 
             return AlertDialog(
-              title: Text('设置 ${def?.name ?? providerId} 的$noun'),
+              title: Text('设置 ${def?.name ?? providerId} 的 Key'),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    isCookie ? 'Cookie 等同账号登录权限，仅存本地安全存储，请勿外传' : 'Key 仅存储在本地设备安全存储中',
+                    'Key 仅存储在本地设备安全存储中',
                     style: TextStyle(fontSize: 12, color: c.accent),
                   ),
                   const SizedBox(height: 12),
@@ -469,7 +433,7 @@ class _AssetsPageState extends State<AssetsPage> {
                     obscureText: obscure,
                     autofocus: true,
                     decoration: InputDecoration(
-                      hintText: isCookie ? '粘贴 Cookie（需含 baizhi_session=...）' : '粘贴 API Key',
+                      hintText: '粘贴 API Key',
                       errorText: errorText,
                       suffixIcon: TextButton(
                         onPressed: () => setState(() => obscure = !obscure),
@@ -504,7 +468,7 @@ class _AssetsPageState extends State<AssetsPage> {
     }
     if (key.length < 4) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$noun 至少需要 4 个字符')),
+        const SnackBar(content: Text('API Key 至少需要 4 个字符')),
       );
       return;
     }
@@ -543,21 +507,10 @@ class _AssetsPageState extends State<AssetsPage> {
                 ),
                 _AssetActionRow(
                   badge: '键',
-                  title: def?.credentialKind == CredentialKind.cookie
-                      ? '更新 Cookie'
-                      : '更换 Key',
-                  description: def?.credentialKind == CredentialKind.cookie
-                      ? '更新本地保存的浏览器 Cookie'
-                      : '更新本地保存的 API Key',
+                  title: '更换 Key',
+                  description: '更新本地保存的 API Key',
                   onTap: () => Navigator.of(context).pop('key'),
                 ),
-                if (def?.checkinUrl != null)
-                  _AssetActionRow(
-                    badge: '签',
-                    title: '去签到',
-                    description: '打开浏览器完成人机验证（应用不代签）',
-                    onTap: () => Navigator.of(context).pop('checkin'),
-                  ),
                 _AssetActionRow(
                   badge: '删',
                   title: '移除服务商',
@@ -578,8 +531,6 @@ class _AssetsPageState extends State<AssetsPage> {
       await assets.refreshOne(providerId);
     } else if (action == 'key') {
       await _showKeyDialog(providerId);
-    } else if (action == 'checkin') {
-      await _openCheckin(providerId);
     } else if (action == 'remove') {
       final bool ok = await showConfirmDialog(
         context,
@@ -672,9 +623,7 @@ class _HeroCard extends StatelessWidget {
             Text(
               // Currency and credits never mix into one number, so say
               // 「多单位」 instead of pretending it is all money.
-              groups.any((CurrencyGroup g) => isCreditUnit(g.currency))
-                  ? '多单位组合'
-                  : '多币种组合',
+              '多币种组合',
               style: TextStyle(
                 fontSize: 27,
                 fontWeight: FontWeight.w700,
@@ -725,8 +674,7 @@ class _HeroCard extends StatelessWidget {
             final String value;
             if (info != null) {
               value = '${currencySymbol(info.currency)}'
-                  '${formatAmountText(info.currency, info.available)}'
-                  '${isCreditUnit(info.currency) ? ' 积分' : ''}';
+                  '${formatAmountText(info.currency, info.available)}';
             } else if (record.loading) {
               value = '查询中…';
             } else if (record.error != null) {
@@ -770,21 +718,17 @@ class _ProviderCard extends StatelessWidget {
     required this.record,
     required this.onTap,
     required this.onLongPress,
-    required this.onCheckin,
   });
 
   final ProviderRecord record;
   final VoidCallback? onTap;
   final VoidCallback onLongPress;
-  final VoidCallback onCheckin;
 
   @override
   Widget build(BuildContext context) {
     final AppColors c = context.colors;
     final ProviderDefinition? def = record.definition;
     final BalanceInfo? info = record.info;
-    final CreditDetail? credit = info?.credit;
-    final bool claimed = credit?.dailyClaimed ?? false;
     return InkWell(
       borderRadius: BorderRadius.circular(22),
       onTap: onTap,
@@ -881,42 +825,6 @@ class _ProviderCard extends StatelessWidget {
                 '尚未查询，点击卡片刷新获取余额',
                 style: TextStyle(fontSize: 14, color: c.textFaint),
               ),
-            if (info != null && credit != null) ...<Widget>[
-              const SizedBox(height: 4),
-              Text(
-                '临时 ${formatCredit(credit.temporary)} · '
-                '永久 ${formatCredit(credit.permanent)} · '
-                '冻结 ${formatCredit(credit.frozen)}',
-                style: TextStyle(fontSize: 12, color: c.textMuted),
-              ),
-            ],
-            if (def?.checkinUrl != null) ...<Widget>[
-              const SizedBox(height: 10),
-              Row(
-                children: <Widget>[
-                  Expanded(
-                    child: Text(
-                      claimed
-                          ? '今日已领取每日积分，明天再来'
-                          : '签到需在浏览器完成人机验证，完成后回来点卡片刷新',
-                      style: TextStyle(fontSize: 11, color: c.textMuted),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  SizedBox(
-                    height: 34,
-                    child: ElevatedButton(
-                      onPressed: claimed ? null : onCheckin,
-                      style: ElevatedButton.styleFrom(
-                        padding: const EdgeInsets.symmetric(horizontal: 14),
-                        textStyle: const TextStyle(fontSize: 13),
-                      ),
-                      child: Text(claimed ? '今日已签到' : '去签到'),
-                    ),
-                  ),
-                ],
-              ),
-            ],
           ],
         ),
       ),

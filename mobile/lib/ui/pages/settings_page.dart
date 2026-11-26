@@ -18,100 +18,6 @@ import 'assets_page.dart';
 class SettingsPage extends StatelessWidget {
   const SettingsPage({super.key});
 
-  Future<void> _pickWebProvider(
-    BuildContext context,
-    SettingsController settings,
-    SettingsStrings s,
-  ) async {
-    await showModalBottomSheet<void>(
-      context: context,
-      builder: (BuildContext ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            ListTile(
-              title: Text(s.t('settings_web_provider_deepseek')),
-              trailing: settings.webSearchProvider == webSearchProviderDeepseek
-                  ? const Icon(Icons.check_rounded)
-                  : null,
-              onTap: () {
-                Navigator.of(ctx).pop();
-                settings.setWebSearchProvider(webSearchProviderDeepseek);
-              },
-            ),
-            ListTile(
-              title: Text(s.t('settings_web_provider_baizhi')),
-              trailing: settings.webSearchProvider == webSearchProviderBaizhi
-                  ? const Icon(Icons.check_rounded)
-                  : null,
-              onTap: () {
-                Navigator.of(ctx).pop();
-                settings.setWebSearchProvider(webSearchProviderBaizhi);
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// 百智云 Key 编辑：只写安全存储，不显示明文；留空 = 清除。
-  Future<void> _editBaizhiKey(
-    BuildContext context,
-    SettingsController settings,
-    SettingsStrings s,
-    bool isImage,
-  ) async {
-    final TextEditingController input = TextEditingController();
-    await showDialog<void>(
-      context: context,
-      builder: (BuildContext ctx) => AlertDialog(
-        title: Text(
-          isImage ? s.t('settings_image_key') : s.t('settings_web_key'),
-        ),
-        content: TextField(
-          controller: input,
-          obscureText: true,
-          autocorrect: false,
-          enableSuggestions: false,
-          decoration: const InputDecoration(hintText: 'API Key'),
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('取消'),
-          ),
-          TextButton(
-            onPressed: () async {
-              if (isImage) {
-                await settings.writeBaizhiImageKey('');
-              } else {
-                await settings.writeBaizhiWebKey('');
-              }
-              if (ctx.mounted) {
-                Navigator.of(ctx).pop();
-              }
-            },
-            child: Text(s.t('settings_key_clear')),
-          ),
-          FilledButton(
-            onPressed: () async {
-              final String value = input.text.trim();
-              if (isImage) {
-                await settings.writeBaizhiImageKey(value);
-              } else {
-                await settings.writeBaizhiWebKey(value);
-              }
-              if (ctx.mounted) {
-                Navigator.of(ctx).pop();
-              }
-            },
-            child: Text(s.t('settings_key_save')),
-          ),
-        ],
-      ),
-    );
-  }
   /// 所在地编辑：只影响 latest_reminder，留空 = 不告诉模型所在地。
   Future<void> _editUserLocation(
     BuildContext context,
@@ -404,26 +310,6 @@ class SettingsPage extends StatelessWidget {
                   _SettingsCard(
                     children: <Widget>[
                       _SettingsRow(
-                        title: s.t('settings_web_provider'),
-                        trailing: Text(
-                          settings.webSearchProvider == webSearchProviderBaizhi
-                              ? s.t('settings_web_provider_baizhi')
-                              : s.t('settings_web_provider_deepseek'),
-                          style: TextStyle(fontSize: 12, color: c.textMuted),
-                        ),
-                        onTap: () => _pickWebProvider(context, settings, s),
-                      ),
-                      _SettingsRow(
-                        title: s.t('settings_web_key'),
-                        trailing: Icon(Icons.key_rounded, size: 18, color: c.iconMuted),
-                        onTap: () => _editBaizhiKey(context, settings, s, false),
-                      ),
-                      _SettingsRow(
-                        title: s.t('settings_image_key'),
-                        trailing: Icon(Icons.key_rounded, size: 18, color: c.iconMuted),
-                        onTap: () => _editBaizhiKey(context, settings, s, true),
-                      ),
-                      _SettingsRow(
                         title: s.t('settings_user_location'),
                         subtitle: s.t('settings_user_location_desc'),
                         trailing: Text(
@@ -467,12 +353,6 @@ class SettingsPage extends StatelessWidget {
                         value: settings.featureTts,
                         onChanged: (bool v) =>
                             settings.setFeatureBool(PreferencesService.keyFeatureTts, v),
-                      ),
-                      _SwitchRow(
-                        title: s.t('settings_feature_image'),
-                        value: settings.featureImage,
-                        onChanged: (bool v) =>
-                            settings.setFeatureBool(PreferencesService.keyFeatureImage, v),
                       ),
                       _SwitchRow(
                         title: s.t('settings_feature_safety'),

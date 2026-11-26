@@ -102,7 +102,7 @@ void main() {
     expect(parts.single['file_id'], 'file-1');
   });
 
-  test('空回答判定：正文/思考/工具调用/生图任一存在才算有产出', () {
+  test('空回答判定：正文/思考/工具调用任一存在才算有产出', () {
     expect(hasAssistantOutput(_message(MessageRole.assistant, '')), isFalse);
 
     final ChatMessage withReasoning =
@@ -116,9 +116,5 @@ void main() {
       ),
       isTrue,
     );
-
-    final ChatMessage withImage = _message(MessageRole.assistant, '');
-    withImage.imageState = 'generating';
-    expect(hasAssistantOutput(withImage), isTrue);
   });
 }
